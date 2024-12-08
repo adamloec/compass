@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -16,6 +17,8 @@ class Compass:
         self.method_call_dict = {}
         self.method_code_dict = {}
         self.file_methods_dict = {}
+
+        self._build()
 
     def _parse_file(self, file_path, file_extension):
 
@@ -52,3 +55,17 @@ class Compass:
                     file_path = os.path.join(root, file)
                     print(f"Parsing {file_path}")
                     self._parse_file(file_path, file_extension)
+
+        self.dicts_to_json(self.method_call_dict, "method_call_dict.json")
+        self.dicts_to_json(self.method_code_dict, "method_code_dict.json")
+        self.dicts_to_json(self.file_methods_dict, "file_methods_dict.json")
+
+    def dicts_to_json(self, dicts_list, filename):
+        
+        def default_serializer(obj):
+            if isinstance(obj, set):
+                return list(obj)
+            raise TypeError(f"Type {type(obj)} not serializable")
+
+        with open(filename, 'w') as f:
+            json.dump(dicts_list, f, indent=4, default=default_serializer)
