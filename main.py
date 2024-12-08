@@ -5,7 +5,13 @@ import openai
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# from compass import Compass
+# Testing compass here
+from compass import Compass
+c = Compass(dir_path="test_data/Checkers")
 
-# c = Compass(dir_path="compass/test_data/Checkers")
-# c.build()
+# Comparing RAG QA / instruct with compass and repo embeddings
+from chains import QAChain, ContextRetriever
+retriever = ContextRetriever(data_path="test_data/Checkers", data_type="repo", retrieval_type="similarity")
+chain = QAChain(context_retriever=retriever)
+
+print(chain.query("What does the AI code do?"))

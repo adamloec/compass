@@ -7,15 +7,19 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 
 SUPPORTED_DATA_TYPES = ["compass", "repo"]
+SUPPORTED_RETRIEVAL_TYPES = ["similarity"]
 
 class ContextRetriever:
     
-    def __init__(self, data_path: str, data_type: str="compass"):
+    def __init__(self, data_path: str, data_type: str="compass", retrieval_type: str="similarity"):
         if data_type not in SUPPORTED_DATA_TYPES:
             raise Exception(f"Please use a supported data type: {SUPPORTED_DATA_TYPES}")
+        if retrieval_type not in SUPPORTED_RETRIEVAL_TYPES:
+            raise Exception(f"Please use a supported retrieval type: {SUPPORTED_RETRIEVAL_TYPES}")
     
         self.data_path = data_path
         self.data_type = data_type
+        self.retrieval_type = retrieval_type
         
         self.embeddings = OpenAIEmbeddings()
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -31,8 +35,8 @@ class ContextRetriever:
     # Loads compass json file into documents, file
     def _create_compass_documents(self) -> list[Document]:
 
-        all_documents = []
         try:
+            all_documents = []
             with open(self.data_path, 'r') as f:
                 data = json.load(f)
 
@@ -49,18 +53,18 @@ class ContextRetriever:
                                     "function_name": func_name
                                 }
                             })
-
+            
+            all_documents = [Document(page_context=doc["page_content"], metadata=doc["metadata"]) for doc in all_documents]
+            return all_documents
+        
         except Exception as e:
             print(f"Error processing {self.data_path}: {str(e)}")
-
-        all_documents = [Document(page_context=doc["page_content"], metadata=doc["metadata"]) for doc in all_documents]
-        return all_documents
 
     # Load entire code base into documents for embeddings
     def _create_repo_documents(self) -> list[Document]:
         
-        all_documents = []
         try:
+            all_documents = []
             documents = []
             for root, dirs, files in os.walk(self.data_path):
                 for file in files:
@@ -73,23 +77,27 @@ class ContextRetriever:
                 split_docs = self.text_splitter.split_documents([doc])
                 all_documents.extend(split_docs)
 
+            return all_documents
+
         except Exception as e:
             print(f"Error processing {self.data_path}: {str(e)}")
-        
-        return all_documents
 
     def _create_vectorstore(self) -> Chroma:
 
         try:
+            documents = None
             if self.data_type == "compass":
                 documents = self._create_compass_documents()
             if self.data_type == "repo":
-                documents - self._create_repo_documents()
+                print("Generating file documents")
+                documents = self._create_repo_documents()
 
             vector_store = Chroma(
                 embedding_function=self.embeddings
             )
             vector_store.add_documents(documents)
+
+            return vector_store
         
         except Exception as e:
             print(f"Failed to create vector store {self.__class__.__name__}: {str(e)}")
@@ -97,4 +105,6 @@ class ContextRetriever:
     def _initialize_retriever(self) -> None:
 
         vector_store = self._create_vectorstore()
-        self.retriever = vector_store.as_retriever(search_type="similarity_score_threshold", search_kwargs={"score_threshold": 0.7})
+        
+        if self.retrieval_type == "similarity":
+            self.retriever = vector_store.as_retriever(search_type="similarity_score_threshold", search_kwargs={"score_threshold": 0.7})

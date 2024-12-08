@@ -5,18 +5,17 @@ import matplotlib.pyplot as plt
 
 from .parsers import PARSERS
 
+# TODO
+# Add summarizations here, summarize each function in a file and store in json data, export to file. Do all of this in build func
+
 class Compass:
     def __init__(self, dir_path=None):
         
         self.dir_path = Path(dir_path) if dir_path else None
+
         self.method_call_dict = {}
         self.method_code_dict = {}
         self.file_methods_dict = {}
-
-        # Only used for visualization
-        self.graph = None
-        
-        self._build()
 
     def _parse_file(self, file_path, file_extension):
 
@@ -53,13 +52,3 @@ class Compass:
                     file_path = os.path.join(root, file)
                     print(f"Parsing {file_path}")
                     self._parse_file(file_path, file_extension)
-
-        # self.graph = nx.DiGraph()
-        
-        # all_methods = set(self.method_call_dict.keys())
-        # self.graph.add_nodes_from(all_methods)
-        
-        # for method, calls in self.method_call_dict.items():
-        #     for call in calls:
-        #         if call in all_methods:
-        #             self.graph.add_edge(method, call)
