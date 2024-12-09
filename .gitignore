@@ -1,4 +1,4 @@
-test_data/
+test_repos/
 file_methods_dict.json
 method_call_dict.json
 method_code_dict.json
