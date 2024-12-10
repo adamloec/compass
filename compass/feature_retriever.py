@@ -29,7 +29,7 @@ class CompassFeatureRetriever:
         instance = cls(compass, known_features, num_features)
         docs, embedding_matrix = instance._create_compass_clusters()
         feature_dict = instance._get_compass_features(docs, embedding_matrix)
-        
+
         LOGGER.info("Feature extraction completed")
         return feature_dict
 
@@ -120,7 +120,7 @@ class CompassFeatureRetriever:
                 continue
                 
             reference_list_str = "\n".join(self.known_features) if self.known_features else "None"
-            
+
             prompt = f"""
             These function summaries belong to a single high-level feature or component group.
 
@@ -130,17 +130,21 @@ class CompassFeatureRetriever:
             These known features represent the kind of top-level, conceptual components we want: user-visible elements, 
             major system modules, or conceptual building blocks of the application. Think of them as anchors. 
             Your goal is to produce a feature name that fits naturally into a similar conceptual space, 
-            not too low-level or purely technical.
+            not too low-level or purely technical (e.g., avoid camel case and underscores like "texture_manager" or 
+            "valueComparator"). Consider these known features as pillars of the conceptual landscape. 
+            If a cluster's purpose clearly aligns with one of the known features, you may refine or re-use that known feature name, 
+            or invent a closely related conceptual feature that naturally complements or expands the existing set.
 
             Important instructions:
             - Provide exactly one concise, human-readable feature/component name.
             - The name should be at a similar conceptual level to the known features provided.
             - Do not provide multiple options or a list.
             - Do not introduce overly technical or micro-level concepts; maintain a high-level, user/system perspective.
-            - If none of the known features fit perfectly, choose a new, similarly conceptual name.
+            - If none of the known features fit perfectly, choose a new, similarly conceptual name that would make sense 
+            to someone familiar with the known features.
             - Do not mention code or implementation details, only the conceptual feature.
 
-            Summaries to analyze:
+            Summaries:
             {' '.join(cluster_summaries)}
 
             Now, provide a single, high-level feature/component name that aligns well with the known features and/or the provided summaries:
