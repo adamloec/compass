@@ -125,8 +125,8 @@ class TestCaseAgent(Chain):
                 Generate several such test cases to thoroughly cover the feature.
                 """.strip()
 
-        resp = self.llm.invoke(test_prompt)
-        return resp.content.strip()
+        response = self.llm.invoke(test_prompt)
+        return response.content.strip()
 
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
         """

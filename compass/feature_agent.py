@@ -198,10 +198,10 @@ class FeatureAgent(Chain):
                 cluster_summaries=cluster_text,
                 reference_list_str=reference_list_str
             )
-            resp = self.llm.invoke(prompt_val)
+            response = self.llm.invoke(prompt_val)
 
             # Extract the feature name from the LLM response
-            feature_name = resp.content.strip().split("\n")[0].strip(" -:*")
+            feature_name = response.content.strip().split("\n")[0].strip(" -:*")
 
             methods = [method_names[i] for i, lbl in enumerate(labels) if lbl == cluster_id]
             if feature_name not in feature_dict:
