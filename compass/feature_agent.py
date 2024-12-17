@@ -22,7 +22,7 @@ class FeatureAgent(Chain):
             with the provided VectorStore interface.
         known_features (List[str]): A list of known high-level feature names. These serve as conceptual
             references or anchors to guide the naming of new features.
-        llm (ChatOpenAI): The LLM instance used to generate feature names. Default is a ChatOpenAI instance
+        model (ChatOpenAI): The LLM instance used to generate feature names. Default is a ChatOpenAI instance
             with model_name="gpt-4o-mini" and temperature=0 for deterministic responses.
 
     Class Attributes:
@@ -31,7 +31,7 @@ class FeatureAgent(Chain):
         prompt_template (ClassVar[PromptTemplate]): A prompt template for generating feature names from cluster summaries.
 
     Methods:
-        as_chain(vector_store, known_features, llm): Class method to construct an instance of the chain easily.
+        as_chain(vector_store, known_features, model): Class method to construct an instance of the chain easily.
         _get_docs_and_embeddings() -> tuple[List[Document], np.ndarray]: Retrieves documents and embeddings from the vector store.
         _determine_optimal_clusters(embedding_matrix: np.ndarray) -> int: Determines the optimal number of clusters based on coherence.
         _get_compass_features(docs: List[Document], embedding_matrix: np.ndarray) -> dict: Clusters docs into features and names each cluster.
@@ -46,7 +46,7 @@ class FeatureAgent(Chain):
         default_factory=list,
         description="Known high-level feature names used as references for naming new features."
     )
-    llm: ChatOpenAI = Field(
+    model: ChatOpenAI = Field(
         default_factory=lambda: ChatOpenAI(model_name="gpt-4o-mini", temperature=0), # Feature generation model will go here
         description="The LLM used to generate feature names for each cluster."
     )
@@ -88,7 +88,7 @@ class FeatureAgent(Chain):
         )
 
     @classmethod
-    def as_chain(cls, vector_store, known_features: Optional[List[str]] = None, llm: Optional[ChatOpenAI] = None) -> "FeatureAgent":
+    def as_chain(cls, vector_store, known_features: Optional[List[str]] = None, model: Optional[ChatOpenAI] = None) -> "FeatureAgent":
         """
         Class method to create a FeatureAgent chain instance.
 
@@ -96,7 +96,7 @@ class FeatureAgent(Chain):
             vector_store: The vector store object that provides documents and embeddings.
             known_features: Optional list of known feature names.
             num_features: Optional number of desired clusters.
-            llm: Optional LLM instance to use instead of the default ChatOpenAI model.
+            model: Optional LLM instance to use instead of the default ChatOpenAI model.
 
         Returns:
             A configured instance of FeatureAgent ready to be invoked.
@@ -106,7 +106,7 @@ class FeatureAgent(Chain):
         return cls(
             vector_store=vector_store,
             known_features=known_features or [],
-            llm=llm or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
+            model=model or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         )
 
     def _get_docs_and_embeddings(self) -> tuple[List[Document], np.ndarray]:
@@ -207,7 +207,7 @@ class FeatureAgent(Chain):
                 cluster_summaries=cluster_text,
                 reference_list_str=reference_list_str
             )
-            response = self.llm.invoke(prompt_val)
+            response = self.model.invoke(prompt_val)
 
             # Extract the feature name from the LLM response
             feature_name = response.content.strip().split("\n")[0].strip(" -:*")

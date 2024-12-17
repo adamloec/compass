@@ -24,7 +24,7 @@ class TestCaseAgent(Chain):
     Attributes:
         feature_dict (Dict[str, List[str]]): Maps feature names to lists of associated method identifiers.
         compass (Compass): A Compass object that contains `method_summaries`, each with 'summary' and 'code' keys.
-        llm (ChatOpenAI): The language model used to generate test cases.
+        model (ChatOpenAI): The language model used to generate test cases.
 
     Class Attributes:
         input_keys (List[str]): The chain expects one input key, "feature_name".
@@ -39,7 +39,7 @@ class TestCaseAgent(Chain):
         ...,
         description="A Compass object containing method summaries (including code) for methods."
     )
-    llm: ChatOpenAI = Field(
+    model: ChatOpenAI = Field(
         default_factory=lambda: ChatOpenAI(model_name="gpt-4o-mini", temperature=0), # Test case generation model will go here
         description="The LLM used to generate the test cases."
     )
@@ -48,14 +48,14 @@ class TestCaseAgent(Chain):
     output_keys: ClassVar[List[str]] = ["test_cases"]
 
     @classmethod
-    def as_chain(cls, feature_dict: Dict[str, List[str]], compass: Compass, llm: Optional[ChatOpenAI] = None) -> "TestCaseAgent":
+    def as_chain(cls, feature_dict: Dict[str, List[str]], compass: Compass, model: Optional[ChatOpenAI] = None) -> "TestCaseAgent":
         """
         Class method to create a TestCaseAgent chain instance.
 
         Args:
             feature_dict (Dict[str, List[str]]): Mapping of features to methods.
             compass (Compass): A Compass instance with method summaries and code.
-            llm (Optional[ChatOpenAI]): A custom LLM instance to use. If not provided, a default model is used.
+            model (Optional[ChatOpenAI]): A custom LLM instance to use. If not provided, a default model is used.
 
         Returns:
             TestCaseAgent: An instance of the TestCaseAgent chain.
@@ -65,7 +65,7 @@ class TestCaseAgent(Chain):
         return cls(
             feature_dict=feature_dict,
             compass=compass,
-            llm=llm or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
+            model=model or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         )
 
     def _get_code_for_feature(self, feature_name: str) -> List[str]:
@@ -132,7 +132,7 @@ class TestCaseAgent(Chain):
                 Generate several such test cases to thoroughly cover the feature.
                 """.strip()
 
-        response = self.llm.invoke(test_prompt)
+        response = self.model.invoke(test_prompt)
         return response.content.strip()
 
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
