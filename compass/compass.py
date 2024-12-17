@@ -8,8 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 from .parsers import PARSERS
-from .logger import Logger
 
+from .logger import Logger
 LOGGER = Logger.create(__name__)
 
 class Compass:
@@ -45,8 +45,8 @@ class Compass:
             self._method_call_dict[method].update(calls)
     
     def _summarize(self):
-
-        LOGGER.info("Starting code summarization.")
+        LOGGER.info("Summarizing code from repository.")
+        
         for filename, methods in self._file_methods_dict.items():
             for method_name, method_code in methods.items():
 
@@ -126,7 +126,8 @@ class Compass:
         self._method_code_dict.clear()
         self._file_methods_dict.clear()
 
-        LOGGER.info("Starting file parsing.")
+        LOGGER.info("Parsing files from repository.")
+        
         for root, _, files in os.walk(self.dir_path):
             for file in files:
                 file_extension = file.split('.')[-1]

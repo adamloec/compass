@@ -5,6 +5,9 @@ from langchain_openai import ChatOpenAI
 
 from .compass import Compass
 
+from .logger import Logger
+LOGGER = Logger.create(__name__)
+
 class TestCaseAgent(Chain):
     """
     A chain that generates high-level test cases for a given feature, using information
@@ -21,7 +24,7 @@ class TestCaseAgent(Chain):
     Attributes:
         feature_dict (Dict[str, List[str]]): Maps feature names to lists of associated method identifiers.
         compass (Compass): A Compass object that contains `method_summaries`, each with 'summary' and 'code' keys.
-        llm (ChatOpenAI): The language model used to generate test cases.
+        model (ChatOpenAI): The language model used to generate test cases.
 
     Class Attributes:
         input_keys (List[str]): The chain expects one input key, "feature_name".
@@ -36,7 +39,7 @@ class TestCaseAgent(Chain):
         ...,
         description="A Compass object containing method summaries (including code) for methods."
     )
-    llm: ChatOpenAI = Field(
+    model: ChatOpenAI = Field(
         default_factory=lambda: ChatOpenAI(model_name="gpt-4o-mini", temperature=0), # Test case generation model will go here
         description="The LLM used to generate the test cases."
     )
@@ -45,25 +48,27 @@ class TestCaseAgent(Chain):
     output_keys: ClassVar[List[str]] = ["test_cases"]
 
     @classmethod
-    def as_chain(cls, feature_dict: Dict[str, List[str]], compass: Compass, llm: Optional[ChatOpenAI] = None) -> "TestCaseAgent":
+    def as_chain(cls, feature_dict: Dict[str, List[str]], compass: Compass, model: Optional[ChatOpenAI] = None) -> "TestCaseAgent":
         """
         Class method to create a TestCaseAgent chain instance.
 
         Args:
             feature_dict (Dict[str, List[str]]): Mapping of features to methods.
             compass (Compass): A Compass instance with method summaries and code.
-            llm (Optional[ChatOpenAI]): A custom LLM instance to use. If not provided, a default model is used.
+            model (Optional[ChatOpenAI]): A custom LLM instance to use. If not provided, a default model is used.
 
         Returns:
             TestCaseAgent: An instance of the TestCaseAgent chain.
         """
+        LOGGER.info("Created test case generation chain.")
+
         return cls(
             feature_dict=feature_dict,
             compass=compass,
-            llm=llm or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
+            model=model or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         )
 
-    def _get_code_for_feature(self, feature_name: str) -> List[str]:
+    def _get_summary_for_feature(self, feature_name: str) -> List[str]:
         """
         Retrieve code snippets associated with a given feature using the Compass object.
 
@@ -78,10 +83,11 @@ class TestCaseAgent(Chain):
 
         funcs = self.feature_dict[feature_name]
         snippets = [
-            self.compass.method_summaries[m]["code"]
+            self.compass.method_summaries[m]["summary"]
             for m in funcs
             if m in self.compass.method_summaries and "code" in self.compass.method_summaries[m]
         ]
+        print(snippets)
         return snippets
     
     def _generate_test_cases_for_feature(self, feature_name: str, snippets: List[str]) -> str:
@@ -96,6 +102,8 @@ class TestCaseAgent(Chain):
             str: A string containing the generated test cases for this feature.
                  If no snippets are provided, returns a message indicating no code found.
         """
+        LOGGER.debug(f"Generating test cases for given feature: {feature_name}")
+
         if not snippets:
             return "No code found for this feature."
 
@@ -125,8 +133,8 @@ class TestCaseAgent(Chain):
                 Generate several such test cases to thoroughly cover the feature.
                 """.strip()
 
-        resp = self.llm.invoke(test_prompt)
-        return resp.content.strip()
+        response = self.model.invoke(test_prompt)
+        return response.content.strip()
 
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
         """
@@ -145,11 +153,13 @@ class TestCaseAgent(Chain):
         Returns:
             dict: A dictionary with the key "test_cases", mapping each feature_name to its generated test cases.
         """
+        LOGGER.info("Starting test case agent chain.")
+
         self.feature_dict = inputs["feature_dict"]
         all_test_cases = {}
 
         for feature_name in self.feature_dict.keys():
-            snippets = self._get_code_for_feature(feature_name)
+            snippets = self._get_summary_for_feature(feature_name)
             test_cases = self._generate_test_cases_for_feature(feature_name, snippets)
             all_test_cases[feature_name] = test_cases
 

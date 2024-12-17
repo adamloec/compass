@@ -92,7 +92,8 @@ class VectorStore:
         """
         collection = self.vector_store._collection
         result = collection.get(include=['documents'])
-        return [Document(**doc) for doc in result["documents"]]
+        
+        return [Document(page_content=doc.get("page_content", ""), metadata=doc.get("metadata", {})) for doc in result["documents"]]
 
     @classmethod
     def as_retriever(cls, source: Union[Compass, str], embedding_model_path: Optional[str] = None):

@@ -8,6 +8,9 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains.base import Chain
 
+from .logger import Logger
+LOGGER = Logger.create(__name__)
+
 class FeatureAgent(Chain):
     """
     A chain that clusters documents into conceptual feature groups and generates
@@ -19,7 +22,7 @@ class FeatureAgent(Chain):
             with the provided VectorStore interface.
         known_features (List[str]): A list of known high-level feature names. These serve as conceptual
             references or anchors to guide the naming of new features.
-        llm (ChatOpenAI): The LLM instance used to generate feature names. Default is a ChatOpenAI instance
+        model (ChatOpenAI): The LLM instance used to generate feature names. Default is a ChatOpenAI instance
             with model_name="gpt-4o-mini" and temperature=0 for deterministic responses.
 
     Class Attributes:
@@ -28,7 +31,7 @@ class FeatureAgent(Chain):
         prompt_template (ClassVar[PromptTemplate]): A prompt template for generating feature names from cluster summaries.
 
     Methods:
-        as_chain(vector_store, known_features, llm): Class method to construct an instance of the chain easily.
+        as_chain(vector_store, known_features, model): Class method to construct an instance of the chain easily.
         _get_docs_and_embeddings() -> tuple[List[Document], np.ndarray]: Retrieves documents and embeddings from the vector store.
         _determine_optimal_clusters(embedding_matrix: np.ndarray) -> int: Determines the optimal number of clusters based on coherence.
         _get_compass_features(docs: List[Document], embedding_matrix: np.ndarray) -> dict: Clusters docs into features and names each cluster.
@@ -43,7 +46,7 @@ class FeatureAgent(Chain):
         default_factory=list,
         description="Known high-level feature names used as references for naming new features."
     )
-    llm: ChatOpenAI = Field(
+    model: ChatOpenAI = Field(
         default_factory=lambda: ChatOpenAI(model_name="gpt-4o-mini", temperature=0), # Feature generation model will go here
         description="The LLM used to generate feature names for each cluster."
     )
@@ -85,7 +88,7 @@ class FeatureAgent(Chain):
         )
 
     @classmethod
-    def as_chain(cls, vector_store, known_features: Optional[List[str]] = None, llm: Optional[ChatOpenAI] = None) -> "FeatureAgent":
+    def as_chain(cls, vector_store, known_features: Optional[List[str]] = None, model: Optional[ChatOpenAI] = None) -> "FeatureAgent":
         """
         Class method to create a FeatureAgent chain instance.
 
@@ -93,15 +96,17 @@ class FeatureAgent(Chain):
             vector_store: The vector store object that provides documents and embeddings.
             known_features: Optional list of known feature names.
             num_features: Optional number of desired clusters.
-            llm: Optional LLM instance to use instead of the default ChatOpenAI model.
+            model: Optional LLM instance to use instead of the default ChatOpenAI model.
 
         Returns:
             A configured instance of FeatureAgent ready to be invoked.
         """
+        LOGGER.info("Created feature generation chain.")
+
         return cls(
             vector_store=vector_store,
             known_features=known_features or [],
-            llm=llm or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
+            model=model or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         )
 
     def _get_docs_and_embeddings(self) -> tuple[List[Document], np.ndarray]:
@@ -113,6 +118,8 @@ class FeatureAgent(Chain):
             - docs: A list of Document objects.
             - embedding_matrix: A NumPy array of embeddings corresponding to the docs.
         """
+        LOGGER.debug("Getting docs and embeddings from vector storage.")
+
         docs, embedding_matrix = self.vector_store.get_documents_with_embeddings()
         return docs, embedding_matrix
 
@@ -128,6 +135,7 @@ class FeatureAgent(Chain):
         Returns:
             int: The chosen number of clusters.
         """
+        LOGGER.debug("Determining optimal clusters for Agglomerative Clustering.")
 
         similarity_matrix = cosine_similarity(embedding_matrix)
         max_clusters = min(20, len(embedding_matrix) - 1)
@@ -175,6 +183,7 @@ class FeatureAgent(Chain):
             Dict[str, List[str]]: A dictionary mapping each generated feature name to a list of 
             associated method names (or doc identifiers).
         """
+        LOGGER.debug("Getting all code base features based on compass summary clustering.")
         similarity_matrix = cosine_similarity(embedding_matrix)
         n_clusters = self._determine_optimal_clusters(embedding_matrix)
         cluster_model = AgglomerativeClustering(n_clusters=n_clusters, metric='precomputed', linkage='complete')
@@ -198,10 +207,10 @@ class FeatureAgent(Chain):
                 cluster_summaries=cluster_text,
                 reference_list_str=reference_list_str
             )
-            resp = self.llm.invoke(prompt_val)
+            response = self.model.invoke(prompt_val)
 
             # Extract the feature name from the LLM response
-            feature_name = resp.content.strip().split("\n")[0].strip(" -:*")
+            feature_name = response.content.strip().split("\n")[0].strip(" -:*")
 
             methods = [method_names[i] for i, lbl in enumerate(labels) if lbl == cluster_id]
             if feature_name not in feature_dict:
@@ -221,6 +230,8 @@ class FeatureAgent(Chain):
         Returns:
             dict: A dictionary with a single key "feature_dict" mapping feature names to lists of method names.
         """
+        LOGGER.info("Starting feature agent chain.")
+
         docs, embedding_matrix = self._get_docs_and_embeddings()
         feature_dict = self._get_compass_features(docs, embedding_matrix)
         return {"feature_dict": feature_dict}
