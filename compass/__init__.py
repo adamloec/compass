@@ -1,6 +1,6 @@
 from .compass import Compass
-from .feature_retriever import CompassFeatureRetriever
+from .vector_store import VectorStore
 
 from .logger import Logger
 
-__all__ = [Compass, CompassFeatureRetriever]
+__all__ = [Compass, VectorStore]
