@@ -4,6 +4,8 @@ from pathlib import Path
 import networkx as nx
 import matplotlib.pyplot as plt
 from langchain_openai import ChatOpenAI
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from .parsers import PARSERS
 from .logger import Logger
@@ -70,6 +72,51 @@ class Compass:
                     summary = self.model.invoke(prompt).content.strip()
                     self.method_summaries[method_name]["summary"] = summary
 
+    def _multiprocess_summarize(self):
+
+        LOGGER.info("Summarizing code from repository.")
+        lock = threading.Lock()
+
+        def summarize_method(method_name, method_code):
+            if method_name in self._method_code_dict:
+                existing_code = self._method_code_dict[method_name]
+                if isinstance(existing_code, str):
+                    code_to_summarize = existing_code
+                else:
+                    code_to_summarize = existing_code
+            else:
+                code_to_summarize = method_code
+
+            if "summary" not in self.method_summaries.get(method_name, {}):
+                LOGGER.debug(f"Generating summary for method: {method_name}")
+                prompt = f"""
+                    You are a highly skilled software engineer. Given the following code, provide a short, high-level summary of what this function or method does in simple terms. 
+                    Focus on the underlying feature or component it relates to, not just the code itself.
+
+                    Code:
+                    {code_to_summarize}
+                    Summary:
+                """
+                summary = self.model.invoke(prompt).content.strip()
+
+                with lock:
+                    self.method_summaries[method_name] = {"code": code_to_summarize, "summary": summary}
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = []
+
+            for filename, methods in self._file_methods_dict.items():
+                for method_name, method_code in methods.items():
+                    futures.append(executor.submit(summarize_method, method_name, method_code))
+
+            for future in as_completed(futures):
+                try:
+                    future.result()  # Raise exceptions if any
+                except Exception as e:
+                    LOGGER.error(f"Error summarizing a method: {e}")
+
+        LOGGER.info("Code summarization completed.")
+
     def _build(self) -> None:
         LOGGER.info("Starting compass build process.")
         if not self.dir_path:
@@ -87,4 +134,4 @@ class Compass:
                     file_path = os.path.join(root, file)
                     self._parse_file(file_path, file_extension)
 
-        self._summarize()
+        self._multiprocess_summarize()
