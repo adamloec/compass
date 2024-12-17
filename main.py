@@ -10,6 +10,24 @@ def write_results_to_file(file_path=None, data_dict=None):
     with open(file_path, 'w') as file:
         json.dump(data_dict, file, indent=4)
 
+def write_test_cases_to_file(test_cases, output_path):
+    with open(output_path, 'w', encoding='utf-8') as f:
+        # Write header
+        f.write("TEST CASES\n")
+        f.write("=" * 50 + "\n\n")
+        
+        for outer_key, inner_dict in test_cases.items():
+            for category, content in inner_dict.items():
+                # Format category title
+                category_title = category.upper().replace('_', ' ')
+                f.write(f"\n{category_title}\n")
+                f.write("-" * len(category_title) + "\n\n")
+                
+                # Write the test cases content
+                if isinstance(content, str):
+                    f.write(content.strip())
+                    f.write("\n\n" + "=" * 50 + "\n")
+
 # Test Repositories
 # https://github.com/VikramBombhi/Checkers.git
 # https://github.com/jironghuang/chess.git
@@ -41,3 +59,4 @@ chain = SequentialChain(
     verbose=True
 )
 result = chain.invoke({})
+write_test_cases_to_file(result, "example_output.txt")
