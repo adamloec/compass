@@ -40,4 +40,4 @@ chain = SequentialChain(
     output_variables=["test_cases"],
     verbose=True
 )
-result = chain({})
+result = chain.invoke({})

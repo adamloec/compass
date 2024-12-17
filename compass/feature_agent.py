@@ -8,6 +8,9 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains.base import Chain
 
+from .logger import Logger
+LOGGER = Logger.create(__name__)
+
 class FeatureAgent(Chain):
     """
     A chain that clusters documents into conceptual feature groups and generates
@@ -98,6 +101,8 @@ class FeatureAgent(Chain):
         Returns:
             A configured instance of FeatureAgent ready to be invoked.
         """
+        LOGGER.info("Created feature generation chain.")
+
         return cls(
             vector_store=vector_store,
             known_features=known_features or [],
@@ -113,6 +118,8 @@ class FeatureAgent(Chain):
             - docs: A list of Document objects.
             - embedding_matrix: A NumPy array of embeddings corresponding to the docs.
         """
+        LOGGER.debug("Getting docs and embeddings from vector storage.")
+
         docs, embedding_matrix = self.vector_store.get_documents_with_embeddings()
         return docs, embedding_matrix
 
@@ -128,6 +135,7 @@ class FeatureAgent(Chain):
         Returns:
             int: The chosen number of clusters.
         """
+        LOGGER.debug("Determining optimal clusters for Agglomerative Clustering.")
 
         similarity_matrix = cosine_similarity(embedding_matrix)
         max_clusters = min(20, len(embedding_matrix) - 1)
@@ -175,6 +183,7 @@ class FeatureAgent(Chain):
             Dict[str, List[str]]: A dictionary mapping each generated feature name to a list of 
             associated method names (or doc identifiers).
         """
+        LOGGER.debug("Getting all code base features based on compass summary clustering.")
         similarity_matrix = cosine_similarity(embedding_matrix)
         n_clusters = self._determine_optimal_clusters(embedding_matrix)
         cluster_model = AgglomerativeClustering(n_clusters=n_clusters, metric='precomputed', linkage='complete')
@@ -221,6 +230,8 @@ class FeatureAgent(Chain):
         Returns:
             dict: A dictionary with a single key "feature_dict" mapping feature names to lists of method names.
         """
+        LOGGER.info("Starting feature agent chain.")
+
         docs, embedding_matrix = self._get_docs_and_embeddings()
         feature_dict = self._get_compass_features(docs, embedding_matrix)
         return {"feature_dict": feature_dict}

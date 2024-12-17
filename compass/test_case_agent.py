@@ -5,6 +5,9 @@ from langchain_openai import ChatOpenAI
 
 from .compass import Compass
 
+from .logger import Logger
+LOGGER = Logger.create(__name__)
+
 class TestCaseAgent(Chain):
     """
     A chain that generates high-level test cases for a given feature, using information
@@ -57,6 +60,8 @@ class TestCaseAgent(Chain):
         Returns:
             TestCaseAgent: An instance of the TestCaseAgent chain.
         """
+        LOGGER.info("Created test case generation chain.")
+
         return cls(
             feature_dict=feature_dict,
             compass=compass,
@@ -96,6 +101,8 @@ class TestCaseAgent(Chain):
             str: A string containing the generated test cases for this feature.
                  If no snippets are provided, returns a message indicating no code found.
         """
+        LOGGER.debug(f"Generating test cases for given feature: {feature_name}")
+
         if not snippets:
             return "No code found for this feature."
 
@@ -145,6 +152,8 @@ class TestCaseAgent(Chain):
         Returns:
             dict: A dictionary with the key "test_cases", mapping each feature_name to its generated test cases.
         """
+        LOGGER.info("Starting test case agent chain.")
+
         self.feature_dict = inputs["feature_dict"]
         all_test_cases = {}
 
