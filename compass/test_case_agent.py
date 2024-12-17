@@ -68,7 +68,7 @@ class TestCaseAgent(Chain):
             model=model or ChatOpenAI(model_name="gpt-4o-mini", temperature=0),
         )
 
-    def _get_code_for_feature(self, feature_name: str) -> List[str]:
+    def _get_summary_for_feature(self, feature_name: str) -> List[str]:
         """
         Retrieve code snippets associated with a given feature using the Compass object.
 
@@ -83,10 +83,11 @@ class TestCaseAgent(Chain):
 
         funcs = self.feature_dict[feature_name]
         snippets = [
-            self.compass.method_summaries[m]["code"]
+            self.compass.method_summaries[m]["summary"]
             for m in funcs
             if m in self.compass.method_summaries and "code" in self.compass.method_summaries[m]
         ]
+        print(snippets)
         return snippets
     
     def _generate_test_cases_for_feature(self, feature_name: str, snippets: List[str]) -> str:
@@ -158,7 +159,7 @@ class TestCaseAgent(Chain):
         all_test_cases = {}
 
         for feature_name in self.feature_dict.keys():
-            snippets = self._get_code_for_feature(feature_name)
+            snippets = self._get_summary_for_feature(feature_name)
             test_cases = self._generate_test_cases_for_feature(feature_name, snippets)
             all_test_cases[feature_name] = test_cases
 

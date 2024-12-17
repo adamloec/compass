@@ -1,0 +1,422 @@
+TEST CASES
+==================================================
+
+
+COORDINATE ACCESS
+-----------------
+
+### Test Case 1: Verify Retrieval of X-Coordinate
+
+**Test Case Title:** Retrieve X-Coordinate of Square
+
+**Steps:**
+1. Create a square object with a known x-coordinate value (e.g., 5).
+2. Call the method to retrieve the x-coordinate.
+3. Compare the retrieved x-coordinate with the expected value (5).
+
+**Expected Outcome:** The retrieved x-coordinate should match the expected value of 5.
+
+---
+
+### Test Case 2: Verify Retrieval of Y-Coordinate
+
+**Test Case Title:** Retrieve Y-Coordinate of Square
+
+**Steps:**
+1. Create a square object with a known y-coordinate value (e.g., 10).
+2. Call the method to retrieve the y-coordinate.
+3. Compare the retrieved y-coordinate with the expected value (10).
+
+**Expected Outcome:** The retrieved y-coordinate should match the expected value of 10.
+
+---
+
+### Test Case 3: Verify X-Coordinate with Negative Value
+
+**Test Case Title:** Retrieve X-Coordinate with Negative Value
+
+**Steps:**
+1. Create a square object with a negative x-coordinate value (e.g., -3).
+2. Call the method to retrieve the x-coordinate.
+3. Compare the retrieved x-coordinate with the expected value (-3).
+
+**Expected Outcome:** The retrieved x-coordinate should match the expected value of -3.
+
+---
+
+### Test Case 4: Verify Y-Coordinate with Negative Value
+
+**Test Case Title:** Retrieve Y-Coordinate with Negative Value
+
+**Steps:**
+1. Create a square object with a negative y-coordinate value (e.g., -7).
+2. Call the method to retrieve the y-coordinate.
+3. Compare the retrieved y-coordinate with the expected value (-7).
+
+**Expected Outcome:** The retrieved y-coordinate should match the expected value of -7.
+
+---
+
+### Test Case 5: Verify X-Coordinate with Zero Value
+
+**Test Case Title:** Retrieve X-Coordinate with Zero Value
+
+**Steps:**
+1. Create a square object with an x-coordinate value of 0.
+2. Call the method to retrieve the x-coordinate.
+3. Compare the retrieved x-coordinate with the expected value (0).
+
+**Expected Outcome:** The retrieved x-coordinate should match the expected value of 0.
+
+---
+
+### Test Case 6: Verify Y-Coordinate with Zero Value
+
+**Test Case Title:** Retrieve Y-Coordinate with Zero Value
+
+**Steps:**
+1. Create a square object with a y-coordinate value of 0.
+2. Call the method to retrieve the y-coordinate.
+3. Compare the retrieved y-coordinate with the expected value (0).
+
+**Expected Outcome:** The retrieved y-coordinate should match the expected value of 0.
+
+---
+
+### Test Case 7: Verify Consistency of X-Coordinate Retrieval
+
+**Test Case Title:** Consistency of X-Coordinate Retrieval
+
+**Steps:**
+1. Create a square object with a specific x-coordinate value (e.g., 15).
+2. Call the method to retrieve the x-coordinate multiple times (e.g., 5 times).
+3. Compare each retrieved value with the expected value (15).
+
+**Expected Outcome:** All retrieved x-coordinates should consistently match the expected value of 15.
+
+---
+
+### Test Case 8: Verify Consistency of Y-Coordinate Retrieval
+
+**Test Case Title:** Consistency of Y-Coordinate Retrieval
+
+**Steps:**
+1. Create a square object with a specific y-coordinate value (e.g., 20).
+2. Call the method to retrieve the y-coordinate multiple times (e.g., 5 times).
+3. Compare each retrieved value with the expected value (20).
+
+**Expected Outcome:** All retrieved y-coordinates should consistently match the expected value of 20.
+
+---
+
+### Test Case 9: Verify Behavior with Uninitialized Coordinates
+
+**Test Case Title:** Retrieve Coordinates from Uninitialized Square
+
+**Steps:**
+1. Create a square object without initializing the x and y coordinates.
+2. Call the method to retrieve the x-coordinate.
+3. Call the method to retrieve the y-coordinate.
+
+**Expected Outcome:** The system should handle the uninitialized state gracefully, either by returning a default value (e.g., 0) or by throwing an appropriate error message.
+
+---
+
+### Test Case 10: Verify Access Control of Coordinates
+
+**Test Case Title:** Access Control of Coordinates
+
+**Steps:**
+1. Attempt to directly access the x-coordinate and y-coordinate member variables of the square object (if applicable).
+2. Observe the behavior of the system.
+
+**Expected Outcome:** The system should prevent direct access to the x and y member variables, ensuring that they can only be accessed through the designated methods.
+
+==================================================
+
+BOARD OCCUPANCY STATUS
+----------------------
+
+### Test Case 1: Verify Occupied Square Returns True
+**Test Case Title:** Check Occupied Square Status  
+**Steps:**  
+1. Place a game piece on a specific square on the board (e.g., A1).  
+2. Call the method to check the occupancy status of the square A1.  
+**Expected Outcome:** The system should return true, indicating that the square A1 is occupied.
+
+---
+
+### Test Case 2: Verify Empty Square Returns False
+**Test Case Title:** Check Empty Square Status  
+**Steps:**  
+1. Ensure that a specific square on the board (e.g., B2) is empty (no pieces placed).  
+2. Call the method to check the occupancy status of the square B2.  
+**Expected Outcome:** The system should return false, indicating that the square B2 is empty.
+
+---
+
+### Test Case 3: Verify Multiple Occupied Squares
+**Test Case Title:** Check Multiple Occupied Squares  
+**Steps:**  
+1. Place game pieces on multiple squares (e.g., C3, D4, and E5).  
+2. Call the method to check the occupancy status of each of the squares C3, D4, and E5.  
+**Expected Outcome:** The system should return true for C3, D4, and E5, indicating that all these squares are occupied.
+
+---
+
+### Test Case 4: Verify Mixed Occupancy Status
+**Test Case Title:** Check Mixed Occupancy Status  
+**Steps:**  
+1. Place a game piece on square F6.  
+2. Ensure that square G7 is empty.  
+3. Call the method to check the occupancy status of both squares F6 and G7.  
+**Expected Outcome:** The system should return true for F6 and false for G7, indicating that F6 is occupied while G7 is empty.
+
+---
+
+### Test Case 5: Verify Occupancy Status After Removing a Piece
+**Test Case Title:** Check Status After Removing a Piece  
+**Steps:**  
+1. Place a game piece on square H8.  
+2. Call the method to check the occupancy status of square H8.  
+3. Remove the game piece from square H8.  
+4. Call the method again to check the occupancy status of square H8.  
+**Expected Outcome:** The system should return true after step 2 and false after step 4, indicating that the square was occupied and then became empty.
+
+---
+
+### Test Case 6: Verify Occupancy Status on Unused Square
+**Test Case Title:** Check Status of Unused Square  
+**Steps:**  
+1. Identify a square on the board that has never had a piece placed on it (e.g., A8).  
+2. Call the method to check the occupancy status of square A8.  
+**Expected Outcome:** The system should return false, indicating that square A8 is empty.
+
+---
+
+### Test Case 7: Verify Occupancy Status with Invalid Input
+**Test Case Title:** Check Status with Invalid Square Reference  
+**Steps:**  
+1. Attempt to check the occupancy status of a square that does not exist (e.g., Z9).  
+**Expected Outcome:** The system should handle the invalid input gracefully, either by returning an error message or a specific response indicating that the square is invalid.
+
+---
+
+### Test Case 8: Verify Occupancy Status After Multiple Changes
+**Test Case Title:** Check Status After Multiple Changes  
+**Steps:**  
+1. Place a game piece on square B1.  
+2. Call the method to check the occupancy status of square B1.  
+3. Remove the piece from square B1.  
+4. Place a game piece on square C2.  
+5. Call the method to check the occupancy status of both squares B1 and C2.  
+**Expected Outcome:** The system should return true for C2 and false for B1, indicating that B1 is empty and C2 is occupied.
+
+---
+
+These test cases cover a variety of scenarios, ensuring that the feature behaves as expected under different conditions.
+
+==================================================
+
+RESOURCE MANAGEMENT
+-------------------
+
+### Test Case 1: Verify Resource Cleanup on Object Destruction
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Allocate resources (e.g., memory, file handles) within the instance.
+3. Destroy the instance of the resource management feature.
+4. Check the system for any memory leaks or unclosed resources.
+
+**Expected Outcome:**
+All allocated resources should be properly released, and there should be no memory leaks or unclosed resources detected.
+
+---
+
+### Test Case 2: Validate Resource Allocation
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Request allocation of a specific resource (e.g., a certain amount of memory).
+3. Verify that the resource has been successfully allocated.
+4. Check the status of the resource to ensure it is in use.
+
+**Expected Outcome:**
+The requested resource should be allocated successfully, and its status should reflect that it is currently in use.
+
+---
+
+### Test Case 3: Attempt to Access Deallocated Resources
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Allocate a resource and verify its successful allocation.
+3. Destroy the instance of the resource management feature.
+4. Attempt to access the previously allocated resource.
+
+**Expected Outcome:**
+Accessing the deallocated resource should result in an error or exception indicating that the resource is no longer available.
+
+---
+
+### Test Case 4: Verify Multiple Resource Allocations
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Allocate multiple resources in succession.
+3. Verify that each resource is allocated successfully.
+4. Destroy the instance of the resource management feature.
+5. Check for proper cleanup of all allocated resources.
+
+**Expected Outcome:**
+All resources should be allocated successfully, and upon destruction of the instance, all resources should be cleaned up without any leaks.
+
+---
+
+### Test Case 5: Check Resource Management Under High Load
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Simulate high load by allocating a large number of resources simultaneously.
+3. Monitor the system for performance and resource allocation success.
+4. Destroy the instance of the resource management feature.
+5. Check for any memory leaks or unclosed resources.
+
+**Expected Outcome:**
+The system should handle high load without crashing, and all resources should be allocated and cleaned up properly.
+
+---
+
+### Test Case 6: Validate Error Handling for Resource Allocation Failure
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Simulate a scenario where resource allocation fails (e.g., due to insufficient memory).
+3. Attempt to allocate a resource and capture the error response.
+4. Verify that the system handles the error gracefully without crashing.
+
+**Expected Outcome:**
+The system should return an appropriate error message indicating the failure of resource allocation, and it should remain stable.
+
+---
+
+### Test Case 7: Ensure Resource State After Destruction
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Allocate a resource and verify its successful allocation.
+3. Destroy the instance of the resource management feature.
+4. Check the state of the resource management system to ensure it reflects that no resources are in use.
+
+**Expected Outcome:**
+The resource management system should indicate that no resources are currently allocated or in use after the instance has been destroyed.
+
+---
+
+### Test Case 8: Validate Resource Reallocation After Cleanup
+**Steps:**
+1. Create an instance of the resource management feature.
+2. Allocate a resource and verify its successful allocation.
+3. Destroy the instance of the resource management feature.
+4. Create a new instance of the resource management feature.
+5. Attempt to allocate the same resource again.
+
+**Expected Outcome:**
+The resource should be allocated successfully in the new instance, indicating that the previous instance's cleanup was effective.
+
+==================================================
+
+GAME BOARD MANAGEMENT
+---------------------
+
+### Test Case 1: Assign a Piece to an Empty Square
+**Test Case Title:** Assign a Piece to an Empty Square  
+**Steps:**  
+1. Start a new game session.  
+2. Identify an empty square on the game board.  
+3. Select a game piece to occupy the identified square.  
+4. Execute the action to place the selected piece on the empty square.  
+**Expected Outcome:**  
+The selected piece should occupy the identified square, and the square should reflect the presence of the piece.
+
+---
+
+### Test Case 2: Attempt to Assign a Piece to an Occupied Square
+**Test Case Title:** Attempt to Assign a Piece to an Occupied Square  
+**Steps:**  
+1. Start a new game session.  
+2. Identify a square that is already occupied by another piece.  
+3. Select a different game piece to occupy the identified square.  
+4. Execute the action to place the selected piece on the occupied square.  
+**Expected Outcome:**  
+The action should be rejected, and the original piece should remain in the square. An appropriate error message should be displayed indicating that the square is already occupied.
+
+---
+
+### Test Case 3: Remove a Piece from a Square
+**Test Case Title:** Remove a Piece from a Square  
+**Steps:**  
+1. Start a new game session.  
+2. Identify a square that is currently occupied by a piece.  
+3. Execute the action to remove the piece from the identified square.  
+**Expected Outcome:**  
+The square should become empty, and the piece should no longer be associated with that square.
+
+---
+
+### Test Case 4: Assign a Piece to a Square After Removal
+**Test Case Title:** Assign a Piece to a Square After Removal  
+**Steps:**  
+1. Start a new game session.  
+2. Identify a square that is currently occupied by a piece.  
+3. Remove the piece from the identified square.  
+4. Select a new game piece to occupy the now-empty square.  
+5. Execute the action to place the new piece on the square.  
+**Expected Outcome:**  
+The new piece should occupy the square, and the square should reflect the presence of the new piece.
+
+---
+
+### Test Case 5: Assign a Piece to a Non-Existent Square
+**Test Case Title:** Assign a Piece to a Non-Existent Square  
+**Steps:**  
+1. Start a new game session.  
+2. Attempt to select a square that does not exist on the game board (e.g., outside the defined boundaries).  
+3. Select a game piece to occupy the non-existent square.  
+4. Execute the action to place the selected piece on the non-existent square.  
+**Expected Outcome:**  
+The action should be rejected, and an appropriate error message should be displayed indicating that the square does not exist.
+
+---
+
+### Test Case 6: Verify Piece Occupancy After Multiple Assignments
+**Test Case Title:** Verify Piece Occupancy After Multiple Assignments  
+**Steps:**  
+1. Start a new game session.  
+2. Identify a square on the game board.  
+3. Select a game piece to occupy the identified square.  
+4. Execute the action to place the selected piece on the square.  
+5. Select a different piece and attempt to place it on the same square.  
+6. Verify the occupancy of the square.  
+**Expected Outcome:**  
+The square should still reflect the first piece as occupying it, and the second piece should not be placed on the square. An appropriate message should indicate that the square is occupied.
+
+---
+
+### Test Case 7: Assign Multiple Pieces to Different Squares
+**Test Case Title:** Assign Multiple Pieces to Different Squares  
+**Steps:**  
+1. Start a new game session.  
+2. Identify multiple empty squares on the game board.  
+3. Select different game pieces for each identified square.  
+4. Execute the action to place each selected piece on its corresponding square.  
+**Expected Outcome:**  
+Each square should reflect the correct piece assigned to it, with no overlaps or errors in occupancy.
+
+---
+
+### Test Case 8: Validate Game Board State After Assignments
+**Test Case Title:** Validate Game Board State After Assignments  
+**Steps:**  
+1. Start a new game session.  
+2. Assign pieces to various squares on the game board according to the game rules.  
+3. Execute the action to finalize the assignments.  
+4. Retrieve the current state of the game board.  
+**Expected Outcome:**  
+The game board state should accurately reflect the current occupancy of all squares, with each square showing the correct piece or being empty as per the assignments made.
+
+==================================================

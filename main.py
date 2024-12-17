@@ -28,9 +28,19 @@ def write_test_cases_to_file(test_cases, output_path):
                     f.write(content.strip())
                     f.write("\n\n" + "=" * 50 + "\n")
 
+""" #################################################################
+
+### TODO
+# Test different snippets, code, summaries, code + summaries?
+# Feature generation needs a lot of work
+
+
 # Test Repositories
 # https://github.com/VikramBombhi/Checkers.git
 # https://github.com/jironghuang/chess.git
+
+    ################################################################# """
+
 
 """Test code for compass, feature agent, and test case agent"""
 from compass import Compass
