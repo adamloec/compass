@@ -20,14 +20,12 @@ class Compass:
         self._method_call_dict = {}  # method_name -> set(of called methods)
         self._method_code_dict = {}  # method_name -> code
         self._file_methods_dict = {} # filename -> { method_name -> code }
+        self._class_inheritance = {} # new: store class inheritance, e.g. { "Rook": set(["Piece"]) }
 
         # new: store file-level summaries
         self.file_summaries = {}     
         self.method_summaries = {}
-        
-        # new: store class inheritance, e.g. { "Rook": set(["Piece"]) }
-        self._class_inheritance = {}
-
+    
         self.model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
         self._build()
 

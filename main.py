@@ -59,11 +59,11 @@ from langchain.chains.sequential import SequentialChain
 #         print(feature)
 
 # Compass
-vdb_dir = "chroma_db/checkers_vdb"
+vdb_dir = "chroma_db/zero_core_vdb"
 
 if not os.path.exists(vdb_dir):
-    checkers_compass = Compass(dir_path="test_repos/Checkers")
-    vector_store = VectorStore.from_compass(checkers_compass, persist=True)
+    chess_compass = Compass(dir_path="test_repos/ZeroCore")
+    vector_store = VectorStore.from_compass(chess_compass, persist=True)
 else:
     vector_store = VectorStore.from_persist_storage(vdb_dir)
 

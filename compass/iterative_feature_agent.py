@@ -14,9 +14,38 @@ LOGGER = Logger.create(__name__)
 
 class IterativeFeatureAgent(Chain):
     """
-    A robust multi-pass merges+splits approach with adjacency weighting, 
-    min-cluster-size merges, and text truncation to avoid overloading the LLM 
-    with huge cluster summaries.
+    A robust multi-pass clustering agent that identifies and groups related code features using
+    an iterative merge-split approach with adjacency weighting.
+
+    Attributes:
+        vector_store (Any): Store containing document embeddings and metadata with a 
+            get_documents_with_embeddings() method.
+        known_features (List[str]): List of existing feature names that serve as conceptual
+            anchors to guide the clustering and naming process.
+        model (ChatOpenAI): LLM model for making clustering decisions. Default is ChatOpenAI
+            with model_name="gpt-4o-mini" and temperature=0.
+        min_cluster_size (int): Minimum number of items allowed per cluster.
+
+    Class Attributes:
+        input_keys (ClassVar[List[str]]): Empty list as this chain requires no inputs.
+        output_keys (ClassVar[List[str]]): Contains "feature_dict" as the only output key.
+        cluster_name_prompt (ClassVar[PromptTemplate]): Template for generating feature names.
+        merge_prompt (ClassVar[PromptTemplate]): Template for cluster merge decisions.
+        split_prompt (ClassVar[PromptTemplate]): Template for cluster split decisions.
+
+    Methods:
+        as_chain(vector_store, known_features, model, min_cluster_size): Class method to construct chain instance.
+        _get_docs_and_embeddings() -> tuple[List[Document], np.ndarray]: Gets docs and embeddings from store.
+        _build_cluster_summary(docs, doc_indices, max_chars, max_per_doc) -> str: Creates cluster summaries.
+        _build_adjacency_map(docs) -> dict: Maps relationships between documents.
+        _adjacency_weighted_distance(base_dist, adjacency) -> np.ndarray: Weights distances by relationships.
+        _initial_clustering(docs, embeddings) -> dict: Performs initial document clustering.
+        _single_pass_merge_splits(cluster_dict, docs) -> dict: Executes one iteration of merges and splits.
+        _attempt_merges(cluster_dict, docs) -> dict: Tries to merge similar clusters.
+        _attempt_splits(cluster_dict, docs) -> dict: Tries to split heterogeneous clusters.
+        _enforce_min_cluster_size(cluster_dict, docs) -> dict: Ensures minimum cluster sizes.
+        _final_naming(cluster_dict, docs) -> dict: Assigns final feature names to clusters.
+        _call(inputs) -> dict: Executes complete clustering pipeline.
     """
 
     vector_store: Any = Field(...)
@@ -30,10 +59,6 @@ class IterativeFeatureAgent(Chain):
 
     input_keys: ClassVar[List[str]] = []
     output_keys: ClassVar[List[str]] = ["feature_dict"]
-
-    ############################################################################
-    # PROMPTS
-    ############################################################################
 
     cluster_name_prompt: ClassVar[PromptTemplate] = PromptTemplate(
         input_variables=["cluster_summaries", "reference_list_str"],
@@ -103,10 +128,6 @@ class IterativeFeatureAgent(Chain):
             """.strip(),
     )
 
-    ############################################################################
-    # MAIN METHODS
-    ############################################################################
-
     @classmethod
     def as_chain(
         cls, 
@@ -123,22 +144,37 @@ class IterativeFeatureAgent(Chain):
         )
 
     def _get_docs_and_embeddings(self) -> tuple[List[Document], np.ndarray]:
+        """
+        Retrieves all documents and their corresponding embeddings from the vector store. This method
+        serves as the initial data gathering step for the clustering process, ensuring we have both
+        the document content and their vector representations for similarity calculations.
+
+        Args:
+            None
+
+        Returns:
+            tuple: A pair containing:
+                - List[Document]: List of document objects with content and metadata
+                - np.ndarray: Matrix of document embeddings where each row corresponds to a document
+        """
         return self.vector_store.get_documents_with_embeddings()
 
-    ############################################################################
-    # TEXT CHUNKING / TRUNCATION
-    ############################################################################
-
-    def _build_cluster_summary(
-        self,
-        docs: List[Document],
-        doc_indices: List[int],
-        max_chars: int = 2000,
-        max_per_doc: int = 500
-    ) -> str:
+    def _build_cluster_summary(self, docs: List[Document], doc_indices: List[int], max_chars: int = 2000, max_per_doc: int = 500) -> str:
         """
-        Collect partial summaries from each doc, but do not exceed `max_chars` total 
-        or `max_per_doc` for each doc summary. This prevents enormous inputs.
+        Creates a condensed summary of documents within a cluster by concatenating truncated versions
+        of each document's content. This summary is used for LLM-based decision making about cluster
+        operations. The method enforces both per-document and total character limits to prevent
+        token limits from being exceeded in LLM calls.
+
+        Args:
+            docs: Complete list of all documents in the system
+            doc_indices: List of indices identifying which documents belong to this cluster
+            max_chars: Maximum total characters allowed in the complete summary (default: 2000)
+            max_per_doc: Maximum characters to include from each individual document (default: 500)
+
+        Returns:
+            str: A concatenated string of document summaries, separated by newlines and truncated
+                to respect both per-document and total length limits
         """
         out = []
         total = 0
@@ -150,33 +186,117 @@ class IterativeFeatureAgent(Chain):
             total += len(snippet)
         return "\n".join(out)
 
-    ############################################################################
-    # ADJACENCY EXAMPLE (INHERITANCE or CALLS) - (Optional)
-    ############################################################################
-
     def _build_adjacency_map(self, docs: List[Document]) -> dict:
         """
-        If you have inheritance or calls, unify them here. 
-        For brevity, we show a no-op adjacency map.
+        Constructs a comprehensive map of relationships between code elements based on method calls
+        and inheritance patterns. This creates a graph-like structure where edges represent different
+        types of code relationships (calls, inherits, etc.) that will influence clustering decisions.
+
+        The method analyzes metadata from each document to identify:
+        - Method calls between different code elements
+        - Inheritance relationships between classes
+        - Bidirectional relationships (e.g., calls/called_by)
+
+        Args:
+            docs: List of document objects containing code elements and their metadata,
+                 including information about method calls and inheritance
+
+        Returns:
+            dict: A nested dictionary where:
+                - Outer key: Document index
+                - Inner key: Related document index
+                - Inner value: Relationship type (e.g., "calls", "inherits", "called_by", "inherited_by")
         """
-        adjacency = {i: set() for i in range(len(docs))}
+        
+        adjacency = {i: {} for i in range(len(docs))}
+        
+        # Build method name to index lookup
+        method_to_idx = {}
+        for i, doc in enumerate(docs):
+            if doc.metadata.get("summary_level") == "method":
+                method_name = doc.metadata.get("method_name")
+                if method_name:
+                    method_to_idx[method_name] = i
+        
+        # Process relationships
+        for i, doc in enumerate(docs):
+            if doc.metadata.get("summary_level") != "method":
+                continue
+            
+            # Handle method calls
+            if calls := doc.metadata.get("calls"):
+                for called_method in calls.split(","):
+                    if called_method and (called_idx := method_to_idx.get(called_method)):
+                        adjacency[i][called_idx] = "calls"
+                        adjacency[called_idx][i] = "called_by"  # Differentiate direction
+            
+            # Handle inheritance
+            if inherits := doc.metadata.get("inherits_from"):
+                for parent in inherits.split(","):
+                    if parent and (parent_idx := method_to_idx.get(parent)):
+                        adjacency[i][parent_idx] = "inherits"
+                        adjacency[parent_idx][i] = "inherited_by"  # Differentiate direction
+        
         return adjacency
 
     def _adjacency_weighted_distance(self, base_dist: np.ndarray, adjacency: dict) -> np.ndarray:
+        """
+        Modifies the base distance matrix by incorporating code relationship information to create
+        a more semantically meaningful distance metric. Documents with direct relationships (like
+        inheritance or method calls) will have their distances reduced according to relationship type.
+
+        The method applies different weights based on relationship types:
+        - Inheritance relationships receive strongest weight (0.4-0.5)
+        - Method calls receive moderate weight (0.6-0.7)
+        - Directionality of relationships affects weight strength
+
+        Args:
+            base_dist: Original distance matrix computed from embedding similarities
+            adjacency: Map of document relationships from _build_adjacency_map
+
+        Returns:
+            np.ndarray: Modified distance matrix where distances between related documents
+                       are reduced according to their relationship type and direction
+        """
         dist_mat = base_dist.copy()
-        # optional weighting
+        
+        # Define weights for different relationship types
+        RELATIONSHIP_WEIGHTS = {
+            "inherits": 0.4,      # Strongest connection - direct inheritance
+            "inherited_by": 0.5,  # Strong connection - parent class
+            "calls": 0.6,        # Moderate connection - direct method call
+            "called_by": 0.7     # Weaker connection - being called by
+        }
+        
         for i in range(len(dist_mat)):
-            for j in adjacency[i]:
+            for j, rel_type in adjacency[i].items():
                 if i != j:
-                    dist_mat[i, j] *= 0.7
-                    dist_mat[j, i] *= 0.7
+                    weight = RELATIONSHIP_WEIGHTS[rel_type]
+                    dist_mat[i, j] *= weight
+                    
         return dist_mat
 
-    ############################################################################
-    # INITIAL CLUSTER
-    ############################################################################
-
     def _initial_clustering(self, docs: List[Document], embeddings: np.ndarray) -> dict:
+        """
+        Performs the initial clustering of documents using a combination of embedding similarities
+        and code relationships. This creates the starting point for subsequent iterative refinement.
+
+        The method:
+        1. Computes cosine similarity between embeddings
+        2. Converts similarities to distances
+        3. Applies adjacency weighting to distances
+        4. Uses hierarchical clustering to create initial groups
+        5. Organizes results into a cluster dictionary
+
+        Args:
+            docs: List of all documents to be clustered
+            embeddings: Matrix of document embeddings
+
+        Returns:
+            dict: Initial clustering results where:
+                - Keys: Cluster identifiers (e.g., "Cluster_0")
+                - Values: Lists of document indices belonging to each cluster
+        """
         similarity = cosine_similarity(embeddings)
         distance = 1 - similarity
         adjacency = self._build_adjacency_map(docs)
@@ -191,11 +311,24 @@ class IterativeFeatureAgent(Chain):
             cluster_dict.setdefault(f"Cluster_{lbl}", []).append(i)
         return cluster_dict
 
-    ############################################################################
-    # LLM MERGES + SPLITS
-    ############################################################################
-
     def _single_pass_merge_splits(self, cluster_dict: dict, docs: List[Document]) -> dict:
+        """
+        Executes a complete iteration of the cluster refinement process, including both merging
+        similar clusters and splitting heterogeneous ones. This method maintains cluster quality
+        through a sequence of operations:
+
+        1. Attempts to merge similar clusters
+        2. Enforces minimum cluster size through merging
+        3. Identifies and splits heterogeneous clusters
+        4. Re-enforces minimum cluster size after splits
+
+        Args:
+            cluster_dict: Current state of clustering, mapping cluster names to document indices
+            docs: Complete list of documents for reference in decision-making
+
+        Returns:
+            dict: Updated clustering state after all merge and split operations
+        """
         # merges
         cluster_dict = self._attempt_merges(cluster_dict, docs)
         # min size merges
@@ -207,6 +340,24 @@ class IterativeFeatureAgent(Chain):
         return cluster_dict
 
     def _attempt_merges(self, cluster_dict: dict, docs: List[Document]) -> dict:
+        """
+        Systematically evaluates all possible cluster pairs for potential merging using LLM-based
+        decision making. The method iteratively considers pairs of clusters and merges them if
+        the LLM determines they represent the same conceptual feature.
+
+        The process:
+        1. Iterates through all cluster pairs
+        2. For each pair, asks LLM if they should be merged
+        3. If yes, combines clusters and updates the clustering state
+        4. Continues until no more merges are possible or recommended
+
+        Args:
+            cluster_dict: Current clustering state mapping names to document indices
+            docs: Complete list of documents for generating cluster summaries
+
+        Returns:
+            dict: Updated clustering state after all approved merges
+        """
         cluster_names = list(cluster_dict.keys())
         i = 0
         while i < len(cluster_names):
@@ -227,6 +378,26 @@ class IterativeFeatureAgent(Chain):
         return cluster_dict
 
     def _llm_says_merge(self, cA_name: str, cA_docs: List[int], cB_name: str, cB_docs: List[int], docs: List[Document]) -> bool:
+        """
+        Consults the LLM to determine if two clusters should be merged based on their content
+        and conceptual similarity. Provides the LLM with summaries of both clusters and expects
+        a binary decision.
+
+        The method:
+        1. Generates summaries for both clusters
+        2. Formats the merge decision prompt
+        3. Interprets LLM's response as a yes/no decision
+
+        Args:
+            cA_name: Name of the first cluster
+            cA_docs: Document indices in first cluster
+            cB_name: Name of the second cluster
+            cB_docs: Document indices in second cluster
+            docs: Complete list of documents for generating summaries
+
+        Returns:
+            bool: True if LLM recommends merging the clusters, False otherwise
+        """
         # build truncated summaries
         a_summaries = self._build_cluster_summary(docs, cA_docs)
         b_summaries = self._build_cluster_summary(docs, cB_docs)
@@ -240,6 +411,24 @@ class IterativeFeatureAgent(Chain):
         return resp.lower().startswith("yes")
 
     def _attempt_splits(self, cluster_dict: dict, docs: List[Document]) -> dict:
+        """
+        Examines each cluster for potential subdivision into more cohesive subclusters using
+        LLM guidance. For clusters identified as containing multiple distinct concepts, performs
+        hierarchical clustering to create appropriate subclusters.
+
+        The process:
+        1. Evaluates each cluster for potential splitting
+        2. If split is recommended, determines optimal number of subclusters
+        3. Performs hierarchical clustering on the subset
+        4. Creates new clusters from the split results
+
+        Args:
+            cluster_dict: Current clustering state
+            docs: Complete list of documents for analysis
+
+        Returns:
+            dict: Updated clustering state after all approved splits
+        """
         import copy
         new_dict = copy.deepcopy(cluster_dict)
 
@@ -257,6 +446,16 @@ class IterativeFeatureAgent(Chain):
         return new_dict
 
     def _llm_says_split(self, cname: str, cluster_summaries: str) -> Optional[int]:
+        """
+        Asks LLM if a cluster should be split and into how many parts.
+
+        Args:
+            cname: Name of cluster
+            cluster_summaries: Text summaries of items in cluster
+
+        Returns:
+            Optional[int]: Number of subclusters to split into, or None if no split needed
+        """
         prompt = self.split_prompt.format_prompt(
             cluster_name=cname,
             cluster_summaries=cluster_summaries
@@ -272,18 +471,44 @@ class IterativeFeatureAgent(Chain):
         return None
 
     def _subcluster(self, doc_indices: List[int], docs: List[Document], k: int) -> np.ndarray:
+        """
+        Performs subclustering on a set of documents.
+
+        Args:
+            doc_indices: Indices of documents to subcluster
+            docs: List of all documents
+            k: Number of subclusters to create
+
+        Returns:
+            np.ndarray: Array of cluster labels
+        """
         _, full_embeddings = self._get_docs_and_embeddings()
         sub_embs = full_embeddings[doc_indices]
         dist = 1 - cosine_similarity(sub_embs)
         model = AgglomerativeClustering(n_clusters=k, metric='precomputed', linkage='complete')
         labels = model.fit_predict(dist)
-        return labels
-
-    ############################################################################
-    # MIN CLUSTER SIZE
-    ############################################################################
+        return labels#
 
     def _enforce_min_cluster_size(self, cluster_dict: dict, docs: List[Document]) -> dict:
+        """
+        Ensures all clusters meet the minimum size requirement by merging small clusters into
+        their most similar larger neighbors. Uses embedding centroids to determine the best
+        merge targets for small clusters.
+
+        The process:
+        1. Computes centroid embeddings for all clusters
+        2. Identifies clusters below minimum size
+        3. Finds most similar larger cluster based on centroid similarity
+        4. Merges small clusters into their best matches
+        5. Updates centroids after merges
+
+        Args:
+            cluster_dict: Current clustering state
+            docs: Complete list of documents
+
+        Returns:
+            dict: Updated clustering state with all clusters meeting minimum size requirement
+        """
         from copy import deepcopy
         cluster_dict = deepcopy(cluster_dict)
 
@@ -319,11 +544,26 @@ class IterativeFeatureAgent(Chain):
 
         return cluster_dict
 
-    ############################################################################
-    # FINAL NAMING
-    ############################################################################
-
     def _final_naming(self, cluster_dict: dict, docs: List[Document]) -> dict:
+        """
+        Generates final, human-readable feature names for each cluster using LLM guidance and
+        known feature names as reference points. Ensures unique names by adding numbers to
+        duplicates.
+
+        The process:
+        1. For each cluster, generates a summary
+        2. Provides summary and known features to LLM
+        3. Processes LLM response into a clean feature name
+        4. Handles naming conflicts by adding numbers
+        5. Maps final names to document lists
+
+        Args:
+            cluster_dict: Final clustering state before naming
+            docs: Complete list of documents
+
+        Returns:
+            dict: Mapping of human-readable feature names to lists of document identifiers
+        """
         final_dict = {}
         reference_list_str = "\n".join(self.known_features) if self.known_features else "None"
 
@@ -347,11 +587,26 @@ class IterativeFeatureAgent(Chain):
 
         return final_dict
 
-    ############################################################################
-    # MAIN CALL
-    ############################################################################
-
     def _call(self, inputs: dict) -> dict:
+        """
+        Executes the complete feature identification pipeline, from initial clustering through
+        iterative refinement to final naming. This is the main entry point for the clustering
+        process.
+
+        The pipeline:
+        1. Retrieves documents and embeddings
+        2. Performs initial clustering with adjacency weighting
+        3. Iteratively refines clusters through merges and splits
+        4. Assigns final feature names
+        5. Converts results to the expected output format
+
+        Args:
+            inputs: Dictionary of input parameters (unused in current implementation)
+
+        Returns:
+            dict: Contains single key "feature_dict" mapping feature names to lists of
+                 code elements belonging to each feature
+        """
         docs, embeddings = self._get_docs_and_embeddings()
 
         # 1) initial adjacency-based cluster
