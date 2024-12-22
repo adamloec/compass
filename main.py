@@ -46,27 +46,41 @@ def write_test_cases_to_file(test_cases, output_path):
 from compass import Compass
 from compass.vector_store import VectorStore
 from compass.feature_agent import FeatureAgent
+from compass.iterative_feature_agent import IterativeFeatureAgent
 from compass.test_case_agent import TestCaseAgent
 
 from langchain.chains.sequential import SequentialChain
 
-# Compass
-compass_checkers = Compass(dir_path="test_repos/chess")
+# Parse feature_agent_results.json, print features
+# with open("zero_core_vdb/feature_agent_results.json", "r") as file:
+#     import json
+#     features = json.load(file)
+#     for feature in features.get("feature_dict"):
+#         print(feature)
 
-# Vector Storage
-vector_store = VectorStore(source=compass_checkers)
+# Compass
+vdb_dir = "chroma_db/checkers_vdb"
+
+if not os.path.exists(vdb_dir):
+    checkers_compass = Compass(dir_path="test_repos/Checkers")
+    vector_store = VectorStore.from_compass(checkers_compass, persist=True)
+else:
+    vector_store = VectorStore.from_persist_storage(vdb_dir)
 
 # Creating the agents
-feature_agent = FeatureAgent.as_chain(vector_store=vector_store)
-test_case_agent = TestCaseAgent.as_chain(feature_dict={}, compass=compass_checkers)
+feature_agent = IterativeFeatureAgent.as_chain(vector_store=vector_store)
+features = feature_agent.invoke({})
+write_results_to_file(file_path="feature_agent_results.json", data_dict=features)
 
-# Actually running the sequential chain (this will be inside each job)
-# Jobs might have, on init, a member var of chains that gets put into seq chain when the job is ran idk
-chain = SequentialChain(
-    chains=[feature_agent, test_case_agent],
-    input_variables=[],
-    output_variables=["test_cases"],
-    verbose=True
-)
-result = chain.invoke({})
-write_test_cases_to_file(result, "example_output.txt")
+# test_case_agent = TestCaseAgent.as_chain(feature_dict={}, compass=compass_checkers)
+
+# # Actually running the sequential chain (this will be inside each job)
+# # Jobs might have, on init, a member var of chains that gets put into seq chain when the job is ran idk
+# chain = SequentialChain(
+#     chains=[feature_agent, test_case_agent],
+#     input_variables=[],
+#     output_variables=["test_cases"],
+#     verbose=True
+# )
+# result = chain.invoke({})
+# write_test_cases_to_file(result, "example_output.txt")
