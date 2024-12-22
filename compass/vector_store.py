@@ -27,7 +27,7 @@ class VectorStore:
                 repo_name = os.path.basename(str(source.dir_path)).lower()
             else:
                 repo_name = os.path.basename(source).lower()
-            self.persist_dir = f"chroma_databases/{repo_name}_vdb"
+            self.persist_dir = f"chroma_db/{repo_name}_vdb"
             
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
         self.vector_store = None
@@ -134,6 +134,9 @@ class VectorStore:
                         "summary_level": "method"
                     }
                 )
+                # Add file_path to method-level documents
+                if "file_path" in method_data:
+                    doc.metadata["file_path"] = method_data["file_path"]
                 all_documents.append(doc)
 
         # 3) Class-level inheritance

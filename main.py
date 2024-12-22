@@ -45,30 +45,23 @@ def write_test_cases_to_file(test_cases, output_path):
 """Test code for compass, feature agent, and test case agent"""
 from compass import Compass
 from compass.vector_store import VectorStore
-from compass.feature_agent import FeatureAgent
-from compass.iterative_feature_agent import IterativeFeatureAgent
+from compass.forwards_feature_agent import ForwardsFeatureAgent
+from compass.backwards_feature_agent import BackwardsFeatureAgent
 from compass.test_case_agent import TestCaseAgent
 
 from langchain.chains.sequential import SequentialChain
 
-# Parse feature_agent_results.json, print features
-# with open("zero_core_vdb/feature_agent_results.json", "r") as file:
-#     import json
-#     features = json.load(file)
-#     for feature in features.get("feature_dict"):
-#         print(feature)
-
 # Compass
-vdb_dir = "chroma_db/zero_core_vdb"
+vdb_dir = "chroma_db/chess_vdb"
 
 if not os.path.exists(vdb_dir):
-    chess_compass = Compass(dir_path="test_repos/ZeroCore")
+    chess_compass = Compass(dir_path="test_repos/chess")
     vector_store = VectorStore.from_compass(chess_compass, persist=True)
 else:
     vector_store = VectorStore.from_persist_storage(vdb_dir)
 
 # Creating the agents
-feature_agent = IterativeFeatureAgent.as_chain(vector_store=vector_store)
+feature_agent = ForwardsFeatureAgent.as_chain(vector_store=vector_store)
 features = feature_agent.invoke({})
 write_results_to_file(file_path="feature_agent_results.json", data_dict=features)
 

@@ -12,7 +12,7 @@ from langchain.chains.base import Chain
 from .logger import Logger
 LOGGER = Logger.create(__name__)
 
-class IterativeFeatureAgent(Chain):
+class ForwardsFeatureAgent(Chain):
     """
     A robust multi-pass clustering agent that identifies and groups related code features using
     an iterative merge-split approach with adjacency weighting.
@@ -135,7 +135,7 @@ class IterativeFeatureAgent(Chain):
         known_features: Optional[List[str]] = None,
         model: Optional[ChatOpenAI] = None,
         min_cluster_size: int = 5
-    ) -> "IterativeFeatureAgent":
+    ) -> "ForwardsFeatureAgent":
         return cls(
             vector_store=vector_store,
             known_features=known_features or [],
@@ -577,13 +577,10 @@ class IterativeFeatureAgent(Chain):
             response = self.model.invoke(prompt_val)
             feature_name = response.content.strip().split("\n")[0].strip(" -:*")
 
-            base_name = feature_name
-            ctr = 2
-            while feature_name in final_dict:
-                feature_name = f"{base_name} ({ctr})"
-                ctr += 1
-
-            final_dict[feature_name] = dindices
+            if feature_name in final_dict:
+                final_dict[feature_name].extend(dindices)
+            else:
+                final_dict[feature_name] = dindices
 
         return final_dict
 
