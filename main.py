@@ -5,29 +5,6 @@ import openai
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def write_results_to_file(file_path=None, data_dict=None):
-    import json
-    with open(file_path, 'w') as file:
-        json.dump(data_dict, file, indent=4)
-
-def write_test_cases_to_file(test_cases, output_path):
-    with open(output_path, 'w', encoding='utf-8') as f:
-        # Write header
-        f.write("TEST CASES\n")
-        f.write("=" * 50 + "\n\n")
-        
-        for outer_key, inner_dict in test_cases.items():
-            for category, content in inner_dict.items():
-                # Format category title
-                category_title = category.upper().replace('_', ' ')
-                f.write(f"\n{category_title}\n")
-                f.write("-" * len(category_title) + "\n\n")
-                
-                # Write the test cases content
-                if isinstance(content, str):
-                    f.write(content.strip())
-                    f.write("\n\n" + "=" * 50 + "\n")
-
 """ #################################################################
 
 ### TODO
@@ -44,36 +21,27 @@ def write_test_cases_to_file(test_cases, output_path):
 
 """Test code for compass, feature agent, and test case agent"""
 from compass import Compass
+from compass.utils import write_dict_to_file
 from compass.vector_store import VectorStore
-from compass.forwards_feature_agent import ForwardsFeatureAgent
-from compass.backwards_feature_agent import BackwardsFeatureAgent
-from compass.test_case_agent import TestCaseAgent
+from compass.agents.forwards_feature_agent import ForwardsFeatureAgent
+from compass.agents.backwards_feature_agent import BackwardsFeatureAgent
 
 from langchain.chains.sequential import SequentialChain
 
 # Compass
-vdb_dir = "chroma_db/chess_vdb"
+compass = Compass(dir_path="test_repos/chess")
 
-if not os.path.exists(vdb_dir):
-    chess_compass = Compass(dir_path="test_repos/chess")
-    vector_store = VectorStore.from_compass(chess_compass, persist=True)
-else:
-    vector_store = VectorStore.from_persist_storage(vdb_dir)
-
-# Creating the agents
-feature_agent = ForwardsFeatureAgent.as_chain(vector_store=vector_store)
-features = feature_agent.invoke({})
-write_results_to_file(file_path="feature_agent_results.json", data_dict=features)
-
-# test_case_agent = TestCaseAgent.as_chain(feature_dict={}, compass=compass_checkers)
-
-# # Actually running the sequential chain (this will be inside each job)
-# # Jobs might have, on init, a member var of chains that gets put into seq chain when the job is ran idk
-# chain = SequentialChain(
-#     chains=[feature_agent, test_case_agent],
-#     input_variables=[],
-#     output_variables=["test_cases"],
-#     verbose=True
-# )
-# result = chain.invoke({})
-# write_test_cases_to_file(result, "example_output.txt")
+# Combine all 3 summary types into dict with seperators inbetween each summary type
+# Add separator entries between summary types
+summary_dict = {
+    "FILE_SUMMARIES_START": "=" * 50,
+    **compass.file_summaries,
+    "FILE_SUMMARIES_END": "=" * 50,
+    "CLASS_SUMMARIES_START": "=" * 50, 
+    **compass.class_summaries,
+    "CLASS_SUMMARIES_END": "=" * 50,
+    "METHOD_SUMMARIES_START": "=" * 50,
+    **compass.method_summaries,
+    "METHOD_SUMMARIES_END": "=" * 50
+}
+write_dict_to_file(file_path="compass_summaries.json", data_dict=summary_dict)

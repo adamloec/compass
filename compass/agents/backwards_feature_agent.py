@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains.base import Chain
 
-from .logger import Logger
+from ..logger import Logger
 LOGGER = Logger.create(__name__)
 
 class BackwardsFeatureAgent(Chain):

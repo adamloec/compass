@@ -67,19 +67,6 @@ class VectorStore:
         instance.retriever = instance._create_retriever()
         return instance
     
-    @classmethod
-    def from_code_directory(cls, dir_path: str, persist: bool = False):
-        instance = cls(source=dir_path, persist=persist)
-        instance.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len,
-            separators=["\n\n", "\n", " ", ""]
-        )
-        instance.vector_store = instance._create_vectorstore()
-        instance.retriever = instance._create_retriever()
-        return instance
-    
     def get_documents_with_embeddings(self) -> tuple[List[Document], np.ndarray]:
         collection = self.vector_store._collection
         result = collection.get(include=['documents', 'metadatas', 'embeddings'])
@@ -139,7 +126,7 @@ class VectorStore:
                     doc.metadata["file_path"] = method_data["file_path"]
                 all_documents.append(doc)
 
-        # 3) Class-level inheritance
+        # 3) Classes, Class-level inheritance, and summaries
         for doc in all_documents:
             if doc.metadata.get("method_name"):
                 child = doc.metadata["method_name"]
@@ -148,35 +135,23 @@ class VectorStore:
                     parents = list(compass_source._class_inheritance[child])
                     doc.metadata["inherits_from"] = ",".join(parents)
 
-        return all_documents
+        for class_name, parents in compass_source._class_inheritance.items():
+            class_methods = [m for m in compass_source.method_summaries.keys() 
+                            if m.startswith(f"{class_name}.")]
+            
+            if class_methods:
+                all_documents.append(
+                    Document(
+                        page_content=f"Class {class_name} with methods: {', '.join(class_methods)}",
+                        metadata={
+                            "class_name": class_name,
+                            "inherits_from": ",".join(parents),
+                            "methods": ",".join(class_methods),
+                            "summary_level": "class"
+                        }
+                    )
+                )
 
-    def _create_directory_documents(self) -> List[Document]:
-        dir_source = self.source
-        all_documents = []
-        
-        for root, _, files in os.walk(dir_source.dir_path):
-            for file in files:
-                if file.endswith((".cpp", ".c", ".h", ".hpp", ".js", ".ts", ".tsx", ".py")):
-                    file_path = os.path.join(root, file)
-                    try:
-                        with open(file_path, 'r') as f:
-                            content = f.read()
-                        
-                        chunks = self.text_splitter.split_text(content)
-                        for chunk in chunks:
-                            all_documents.append(
-                                Document(
-                                    page_content=chunk,
-                                    metadata={
-                                        "file_path": file_path,
-                                        "file_name": file
-                                    }
-                                )
-                            )
-                    except Exception as e:
-                        print(f"Error processing file {file_path}: {str(e)}")
-                        continue
-        
         return all_documents
     
     def _create_vectorstore(self) -> Chroma:

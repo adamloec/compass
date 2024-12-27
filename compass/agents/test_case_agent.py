@@ -3,9 +3,9 @@ from pydantic import Field
 from langchain.chains.base import Chain
 from langchain_openai import ChatOpenAI
 
-from .compass import Compass
+from ..compass import Compass
 
-from .logger import Logger
+from ..logger import Logger
 LOGGER = Logger.create(__name__)
 
 class TestCaseAgent(Chain):
