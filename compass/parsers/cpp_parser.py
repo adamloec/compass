@@ -16,35 +16,78 @@ class CppParser(BaseParser):
         Called during AST traversal. We detect:
          - function_definition / declaration -> store in `methods`
          - call_expression -> store in `calls`
-         - class_specifier -> detect inheritance
+         - class_specifier -> detect class methods
         """
+        # 3) Class specifiers (process these first to ensure proper context)
+        if node.type == 'class_specifier':
+            class_name = self._handle_class_specifier(node, code)
+            if class_name:
+                # Initialize empty dict for class methods if not exists
+                if class_name not in self.class_methods:
+                    self.class_methods[class_name] = {}
+                
+                # Look for the class body
+                body = node.child_by_field_name('body')
+                if body:
+                    # Process all method declarations and definitions in the class body
+                    for child in body.children:
+                        # Check for both function definitions and declarations
+                        if child.type in {'function_definition', 'declaration', 'field_declaration'}:
+                            method_name = self._extract_function_name(child)
+                            if method_name:
+                                # Get the full method text
+                                method_text = code[child.start_byte:child.end_byte]
+                                self.class_methods[class_name][method_name] = method_text
 
-        # 1) Function definitions or declarations
-        if node.type in {'function_definition', 'declaration'}:
+        # 1) Function definitions (outside of classes or class method implementations)
+        elif node.type == 'function_definition':
             func_name = self._extract_function_name(node)
             if func_name:
-                methods[func_name] = code[node.start_byte: node.end_byte]
+                # Check if this is a class method implementation
+                scope = self._get_scope(node)
+                if scope:
+                    class_name = scope
+                    if class_name not in self.class_methods:
+                        self.class_methods[class_name] = {}
+                    self.class_methods[class_name][func_name] = code[node.start_byte:node.end_byte]
+                else:
+                    methods[func_name] = code[node.start_byte:node.end_byte]
 
         # 2) Call expressions
         elif node.type == 'call_expression':
             self._handle_call(node, calls)
 
-        # 3) Class specifiers (e.g. "class Rook : public Piece")
-        if node.type == 'class_specifier':
-            self._handle_class_specifier(node, code)
-
     def _extract_function_name(self, node):
         """
         Return the function name if we detect a function_definition or function_declarator.
         """
-        declarator = None
         if node.type == 'function_definition':
             declarator = node.child_by_field_name('declarator')
         elif node.type == 'declaration':
-            declarator_node = node.child_by_field_name('declarator')
-            if declarator_node and declarator_node.type == 'function_declarator':
-                declarator = declarator_node
-        return self._get_name_from_declarator(declarator) if declarator else None
+            declarator = node.child_by_field_name('declarator')
+            if declarator and declarator.type == 'function_declarator':
+                return self._get_name_from_declarator(declarator)
+            return None
+        else:
+            declarator = None
+
+        # Handle function definitions
+        if declarator:
+            # Try to get the name directly from the declarator
+            name = self._get_name_from_declarator(declarator)
+            if name:
+                return name
+
+            # If that fails, try to find the identifier in the children
+            for child in declarator.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+                elif child.type == 'function_declarator':
+                    name = self._get_name_from_declarator(child)
+                    if name:
+                        return name
+
+        return None
 
     def _get_name_from_declarator(self, node):
         """
@@ -52,15 +95,26 @@ class CppParser(BaseParser):
         """
         if not node:
             return None
-        if node.type == 'function_declarator':
-            sub_decl = node.child_by_field_name('declarator')
-            return self._get_name_from_declarator(sub_decl)
-        elif node.type == 'identifier':
+
+        # Direct identifier check
+        if node.type == 'identifier':
             return node.text.decode('utf-8')
 
+        # Handle function declarators
+        if node.type == 'function_declarator':
+            declarator = node.child_by_field_name('declarator')
+            if declarator:
+                return self._get_name_from_declarator(declarator)
+
+        # Check all children for identifiers
         for child in node.children:
             if child.type == 'identifier':
                 return child.text.decode('utf-8')
+            elif child.type in {'function_declarator', 'pointer_declarator', 'qualified_identifier'}:
+                name = self._get_name_from_declarator(child)
+                if name:
+                    return name
+
         return None
 
     def _handle_call(self, node, calls):
@@ -79,30 +133,24 @@ class CppParser(BaseParser):
 
     def _handle_class_specifier(self, node, code):
         """
-        Detect 'class Rook : public Piece' or multiple parents, store them in self.inheritance_map
-        e.g. self.inheritance_map["Rook"] = set(["Piece"])
+        Extract the class name from a class specifier node
         """
         class_name_node = node.child_by_field_name('name')
         if not class_name_node:
-            return
+            return None
 
-        child_class = class_name_node.text.decode('utf-8')
+        return class_name_node.text.decode('utf-8')
 
-        # base_class_clause might be a child_by_field_name('base_class_clause')
-        base_clause = node.child_by_field_name('base_class_clause')
-        if not base_clause:
-            return  # no inheritance
-
-        # Within base_class_clause, we can look for 'type_identifier' nodes
-        parent_classes = set()
-        for child in base_clause.children:
-            if child.type == 'type_identifier':
-                parent_classes.add(child.text.decode('utf-8'))
-
-        if not parent_classes:
-            return
-
-        if child_class not in self.inheritance_map:
-            self.inheritance_map[child_class] = set()
-
-        self.inheritance_map[child_class].update(parent_classes)
+    def _get_scope(self, node):
+        """
+        Check if a function definition has a class scope (e.g., ClassName::method)
+        """
+        declarator = node.child_by_field_name('declarator')
+        if declarator:
+            for child in declarator.children:
+                if child.type == 'qualified_identifier':
+                    # Look for the class name in the qualified identifier
+                    for scope_child in child.children:
+                        if scope_child.type == 'namespace_identifier':
+                            return scope_child.text.decode('utf-8')
+        return None

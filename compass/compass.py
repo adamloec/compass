@@ -19,13 +19,13 @@ class Compass:
 
         self._method_call_dict = {}  # method_name -> set(of called methods)
         self._method_code_dict = {}  # method_name -> code
-        self._file_methods_dict = {} # filename -> { method_name -> code }
-        self._class_inheritance = {} # new: store class inheritance, e.g. { "Rook": set(["Piece"]) }
-
-        # new: store file-level summaries
+        self._file_classes_dict = {} # filename -> { class_name -> code }
+        self._class_methods_dict = {} # class_name -> { method_name -> code }
+        
         self.file_summaries = {}     
         self.method_summaries = {}
-    
+        self.class_summaries = {}
+
         self.model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
         self._build()
 
@@ -41,16 +41,14 @@ class Compass:
         self.file_summaries[str(file_path)] = {"code": code}
 
         tree = parser.parse_code(code)
-        methods, calls = parser.extract_methods_and_calls(tree.root_node, code)
-
-        # Merge the parser's discovered inheritance info
-        if hasattr(parser, "inheritance_map"):
-            for child_class, parents in parser.inheritance_map.items():
-                if child_class not in self._class_inheritance:
-                    self._class_inheritance[child_class] = set()
-                self._class_inheritance[child_class].update(parents)
+        methods, calls, classes = parser.extract_methods_and_calls(tree.root_node, code)
         
-        self._file_methods_dict[str(file_path)] = methods
+        # Update class methods dictionary
+        for class_name, class_methods in classes.items():
+            if class_name not in self._class_methods_dict:
+                self._class_methods_dict[class_name] = {}
+            self._class_methods_dict[class_name].update(class_methods)
+        
         for method in methods:
             self._method_code_dict[method] = methods[method]
             if method not in self._method_call_dict:
@@ -123,7 +121,8 @@ class Compass:
 
         with ThreadPoolExecutor(max_workers=30) as executor:
             futures = []
-            for filename, methods in self._file_methods_dict.items():
+            # Iterate through class_methods_dict instead of file_methods_dict
+            for class_name, methods in self._class_methods_dict.items():
                 for method_name, method_code in methods.items():
                     futures.append(executor.submit(summarize_method, method_name, method_code))
 
@@ -135,13 +134,59 @@ class Compass:
 
         LOGGER.info("Method summarization completed.")
 
+    def _summarize_classes(self):
+        LOGGER.info("Summarizing classes in repository.")
+        lock = threading.Lock()
+
+        def summarize_class(class_name, methods):
+            with lock:
+                if class_name in self.class_summaries and "summary" in self.class_summaries[class_name]:
+                    return
+                self.class_summaries[class_name] = {}
+
+            # Collect all method summaries for this class
+            method_summaries = []
+            for method_name in methods.keys():
+                if method_name in self.method_summaries:
+                    method_summaries.append(f"- {method_name}: {self.method_summaries[method_name]['summary']}")
+
+            LOGGER.debug(f"Summarizing class: {class_name}")
+            prompt = f"""
+                You are a highly skilled software engineer. Summarize the purpose and functionality of this class
+                based on its methods and their behaviors. Focus on the class's role in the system and its key capabilities.
+
+                Class: {class_name}
+                Methods and their purposes:
+                {chr(10).join(method_summaries)}
+
+                Summary:
+            """
+            summary = self.model.invoke(prompt).content.strip()
+            
+            with lock:
+                self.class_summaries[class_name]["summary"] = summary
+                self.class_summaries[class_name]["methods"] = methods
+
+        with ThreadPoolExecutor(max_workers=30) as executor:
+            futures = []
+            for class_name, methods in self._class_methods_dict.items():
+                futures.append(executor.submit(summarize_class, class_name, methods))
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    LOGGER.error(f"Error summarizing class: {e}")
+
+        LOGGER.info("Class summarization completed.")
+
     def _clear_data(self):
         self._method_call_dict.clear()
         self._method_code_dict.clear()
-        self._file_methods_dict.clear()
+
         self.file_summaries.clear()
         self.method_summaries.clear()
-        self._class_inheritance.clear()
+        self.class_summaries.clear()
 
     def _build(self) -> None:
         LOGGER.info("Starting compass build process.")
@@ -162,7 +207,9 @@ class Compass:
                         LOGGER.error(f"Error parsing file {file_path}: {e}")
                         continue
 
-        # Summarize files at a high level
+        # Summarize files
         self._summarize_files()
         # Summarize methods
         self._summarize_methods()
+        # Summarize classes
+        self._summarize_classes()

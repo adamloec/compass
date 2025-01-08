@@ -10,9 +10,7 @@ class BaseParser:
         """
         language = Language(self._get_language())
         self.parser = Parser(language)
-
-        # A place to store class inheritance discovered by child classes
-        self.inheritance_map = {}  # e.g. { "ChildClassName": set(["ParentClassName", ...]) }
+        self.class_methods = {}  # New: maps class names to their methods
 
     @classmethod
     def _get_language(cls):
@@ -26,14 +24,17 @@ class BaseParser:
 
     def extract_methods_and_calls(self, node, code: str):
         """
-        Walk the AST, discover function definitions/declarations -> `methods`,
-        function calls -> `calls`. Child classes can also detect inheritance
-        and store in `self.inheritance_map`.
+        Walk the AST, discover:
+        - function definitions/declarations -> `methods`
+        - function calls -> `calls`
+        - class methods -> stored in `self.class_methods`
+        Child classes can also detect inheritance in `self.inheritance_map`.
         """
         methods = {}
         calls = []
+        self.class_methods = {}  # Reset for each new parse
         self._traverse(node, methods, calls, code)
-        return methods, calls
+        return methods, calls, self.class_methods
 
     def _traverse(self, node, methods, calls, code):
         """

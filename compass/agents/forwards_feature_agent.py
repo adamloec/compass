@@ -145,19 +145,16 @@ class ForwardsFeatureAgent(Chain):
 
     def _get_docs_and_embeddings(self) -> tuple[List[Document], np.ndarray]:
         """
-        Retrieves all documents and their corresponding embeddings from the vector store. This method
-        serves as the initial data gathering step for the clustering process, ensuring we have both
-        the document content and their vector representations for similarity calculations.
-
-        Args:
-            None
-
-        Returns:
-            tuple: A pair containing:
-                - List[Document]: List of document objects with content and metadata
-                - np.ndarray: Matrix of document embeddings where each row corresponds to a document
+        Retrieves all documents and their corresponding embeddings from the vector store.
+        Now handles both method and class level documents.
         """
-        return self.vector_store.get_documents_with_embeddings()
+        docs, embeddings = self.vector_store.get_documents_with_embeddings()
+        
+        # Split documents by summary level
+        class_indices = [i for i, doc in enumerate(docs) if doc.metadata.get("summary_level") == "class"]
+        method_indices = [i for i, doc in enumerate(docs) if doc.metadata.get("summary_level") == "method"]
+        
+        return docs, embeddings, class_indices, method_indices
 
     def _build_cluster_summary(self, docs: List[Document], doc_indices: List[int], max_chars: int = 2000, max_per_doc: int = 500) -> str:
         """
@@ -188,84 +185,53 @@ class ForwardsFeatureAgent(Chain):
 
     def _build_adjacency_map(self, docs: List[Document]) -> dict:
         """
-        Constructs a comprehensive map of relationships between code elements based on method calls
-        and inheritance patterns. This creates a graph-like structure where edges represent different
-        types of code relationships (calls, inherits, etc.) that will influence clustering decisions.
-
-        The method analyzes metadata from each document to identify:
-        - Method calls between different code elements
-        - Inheritance relationships between classes
-        - Bidirectional relationships (e.g., calls/called_by)
-
-        Args:
-            docs: List of document objects containing code elements and their metadata,
-                 including information about method calls and inheritance
-
-        Returns:
-            dict: A nested dictionary where:
-                - Outer key: Document index
-                - Inner key: Related document index
-                - Inner value: Relationship type (e.g., "calls", "inherits", "called_by", "inherited_by")
+        Constructs relationships between code elements, now including class-method relationships.
         """
-        
         adjacency = {i: {} for i in range(len(docs))}
         
-        # Build method name to index lookup
+        # Build method and class name to index lookups
         method_to_idx = {}
+        class_to_idx = {}
         for i, doc in enumerate(docs):
             if doc.metadata.get("summary_level") == "method":
                 method_name = doc.metadata.get("method_name")
                 if method_name:
                     method_to_idx[method_name] = i
+            elif doc.metadata.get("summary_level") == "class":
+                class_name = doc.metadata.get("class_name")
+                if class_name:
+                    class_to_idx[class_name] = i
         
         # Process relationships
         for i, doc in enumerate(docs):
-            if doc.metadata.get("summary_level") != "method":
-                continue
+            # Connect methods to their containing class
+            if doc.metadata.get("summary_level") == "method":
+                method_name = doc.metadata.get("method_name", "")
+                class_name = method_name.split(".")[0] if "." in method_name else None
+                if class_name and (class_idx := class_to_idx.get(class_name)):
+                    adjacency[i][class_idx] = "belongs_to"
+                    adjacency[class_idx][i] = "contains"
             
-            # Handle method calls
-            if calls := doc.metadata.get("calls"):
+            # Connect methods that call each other
+            if doc.metadata.get("summary_level") == "method" and (calls := doc.metadata.get("calls")):
                 for called_method in calls.split(","):
                     if called_method and (called_idx := method_to_idx.get(called_method)):
                         adjacency[i][called_idx] = "calls"
-                        adjacency[called_idx][i] = "called_by"  # Differentiate direction
-            
-            # Handle inheritance
-            if inherits := doc.metadata.get("inherits_from"):
-                for parent in inherits.split(","):
-                    if parent and (parent_idx := method_to_idx.get(parent)):
-                        adjacency[i][parent_idx] = "inherits"
-                        adjacency[parent_idx][i] = "inherited_by"  # Differentiate direction
+                        adjacency[called_idx][i] = "called_by"
         
         return adjacency
 
     def _adjacency_weighted_distance(self, base_dist: np.ndarray, adjacency: dict) -> np.ndarray:
         """
-        Modifies the base distance matrix by incorporating code relationship information to create
-        a more semantically meaningful distance metric. Documents with direct relationships (like
-        inheritance or method calls) will have their distances reduced according to relationship type.
-
-        The method applies different weights based on relationship types:
-        - Inheritance relationships receive strongest weight (0.4-0.5)
-        - Method calls receive moderate weight (0.6-0.7)
-        - Directionality of relationships affects weight strength
-
-        Args:
-            base_dist: Original distance matrix computed from embedding similarities
-            adjacency: Map of document relationships from _build_adjacency_map
-
-        Returns:
-            np.ndarray: Modified distance matrix where distances between related documents
-                       are reduced according to their relationship type and direction
+        Modified to include class-method relationship weights.
         """
         dist_mat = base_dist.copy()
         
-        # Define weights for different relationship types
         RELATIONSHIP_WEIGHTS = {
-            "inherits": 0.4,      # Strongest connection - direct inheritance
-            "inherited_by": 0.5,  # Strong connection - parent class
-            "calls": 0.6,        # Moderate connection - direct method call
-            "called_by": 0.7     # Weaker connection - being called by
+            "belongs_to": 0.4,  # Strong connection - method belongs to class
+            "contains": 0.4,    # Strong connection - class contains method
+            "calls": 0.6,       # Moderate connection - direct method call
+            "called_by": 0.7    # Weaker connection - being called by
         }
         
         for i in range(len(dist_mat)):
@@ -586,66 +552,56 @@ class ForwardsFeatureAgent(Chain):
 
     def _call(self, inputs: dict) -> dict:
         """
-        Executes the complete feature identification pipeline, from initial clustering through
-        iterative refinement to final naming. This is the main entry point for the clustering
-        process.
-
-        The pipeline:
-        1. Retrieves documents and embeddings
-        2. Performs initial clustering with adjacency weighting
-        3. Iteratively refines clusters through merges and splits
-        4. Assigns final feature names
-        5. Converts results to the expected output format
-
-        Args:
-            inputs: Dictionary of input parameters (unused in current implementation)
-
-        Returns:
-            dict: Contains single key "feature_dict" mapping feature names to lists of
-                 code elements belonging to each feature
+        Modified to handle class-level and method-level clustering separately before merging.
         """
-        docs, embeddings = self._get_docs_and_embeddings()
+        docs, embeddings, class_indices, method_indices = self._get_docs_and_embeddings()
 
-        # 1) initial adjacency-based cluster
-        cluster_dict = self._initial_clustering(docs, embeddings)
+        # 1) Initial clustering for both classes and methods
+        class_embeddings = embeddings[class_indices]
+        method_embeddings = embeddings[method_indices]
+        
+        # Cluster classes (with higher min size since there are fewer)
+        class_min_size = max(2, min(self.min_cluster_size - 3, len(class_indices)))
+        temp_min_size = self.min_cluster_size
+        self.min_cluster_size = class_min_size
+        class_clusters = self._initial_clustering([docs[i] for i in class_indices], class_embeddings)
+        
+        # Cluster methods
+        self.min_cluster_size = temp_min_size
+        method_clusters = self._initial_clustering([docs[i] for i in method_indices], method_embeddings)
+        
+        # Convert indices back to global space
+        class_clusters = {k: [class_indices[i] for i in v] for k, v in class_clusters.items()}
+        method_clusters = {k: [method_indices[i] for i in v] for k, v in method_clusters.items()}
+        
+        # Merge clusters
+        cluster_dict = {**class_clusters, **method_clusters}
 
-        # 2) iterative merges + splits
+        # 2) Iterative merges + splits (now considering both types together)
         max_iterations = 5
         for it in range(max_iterations):
             LOGGER.debug(f"Iteration {it+1}: {len(cluster_dict)} clusters")
             old_count = len(cluster_dict)
             new_dict = self._single_pass_merge_splits(cluster_dict, docs)
             new_count = len(new_dict)
-
-            LOGGER.debug(f"Iteration {it+1}: {old_count} -> {new_count} clusters")
-            if new_dict.keys() == cluster_dict.keys():
-                stable = True
-                for k in new_dict:
-                    if set(new_dict[k]) != set(cluster_dict.get(k, [])):
-                        stable = False
-                        break
-                if stable:
-                    cluster_dict = new_dict
-                    break
-                else:
-                    cluster_dict = new_dict
-            else:
+            
+            if new_count == old_count and all(set(new_dict[k]) == set(cluster_dict[k]) for k in new_dict):
                 cluster_dict = new_dict
+                break
+            cluster_dict = new_dict
 
-        # 3) final naming
+        # 3) Final naming considering both classes and methods
         final_clusters = self._final_naming(cluster_dict, docs)
 
-        # 4) build final feature_dict with doc identifiers
+        # 4) Build final feature_dict
         feature_dict = {}
         for feature_name, dindices in final_clusters.items():
             items = []
             for idx in dindices:
-                m = docs[idx].metadata.get("method_name")
-                if m:
-                    items.append(m)
+                if docs[idx].metadata.get("summary_level") == "class":
+                    items.append(docs[idx].metadata.get("class_name"))
                 else:
-                    fpath = docs[idx].metadata.get("file_path")
-                    items.append(fpath if fpath else f"doc_{idx}")
+                    items.append(docs[idx].metadata.get("method_name"))
             feature_dict[feature_name] = items
 
         return {"feature_dict": feature_dict}

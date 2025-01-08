@@ -8,8 +8,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 """ #################################################################
 
 ### TODO
-# Test different snippets, code, summaries, code + summaries?
-# Feature generation needs a lot of work
+The goal with class summaries is to summarize the parent classes, and then pass that summary to the child class when summarizing.
 
 
 # Test Repositories
@@ -31,17 +30,7 @@ from langchain.chains.sequential import SequentialChain
 # Compass
 compass = Compass(dir_path="test_repos/chess")
 
-# Combine all 3 summary types into dict with seperators inbetween each summary type
-# Add separator entries between summary types
-summary_dict = {
-    "FILE_SUMMARIES_START": "=" * 50,
-    **compass.file_summaries,
-    "FILE_SUMMARIES_END": "=" * 50,
-    "CLASS_SUMMARIES_START": "=" * 50, 
-    **compass.class_summaries,
-    "CLASS_SUMMARIES_END": "=" * 50,
-    "METHOD_SUMMARIES_START": "=" * 50,
-    **compass.method_summaries,
-    "METHOD_SUMMARIES_END": "=" * 50
-}
-write_dict_to_file(file_path="compass_summaries.json", data_dict=summary_dict)
+vector_store = VectorStore.from_compass(compass, persist=True)
+
+# forwards_feature_agent = ForwardsFeatureAgent(vector_store)
+

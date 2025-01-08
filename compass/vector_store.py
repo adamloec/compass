@@ -126,26 +126,16 @@ class VectorStore:
                     doc.metadata["file_path"] = method_data["file_path"]
                 all_documents.append(doc)
 
-        # 3) Classes, Class-level inheritance, and summaries
-        for doc in all_documents:
-            if doc.metadata.get("method_name"):
-                child = doc.metadata["method_name"]
-                if child in compass_source._class_inheritance:
-                    # store as a comma-sep
-                    parents = list(compass_source._class_inheritance[child])
-                    doc.metadata["inherits_from"] = ",".join(parents)
-
-        for class_name, parents in compass_source._class_inheritance.items():
-            class_methods = [m for m in compass_source.method_summaries.keys() 
-                            if m.startswith(f"{class_name}.")]
-            
-            if class_methods:
+        # 3) Classes and summaries
+        for class_name, class_data in compass_source.class_summaries.items():
+            if "summary" in class_data:
+                class_methods = list(class_data.get("methods", {}).keys())
+                
                 all_documents.append(
                     Document(
-                        page_content=f"Class {class_name} with methods: {', '.join(class_methods)}",
+                        page_content=class_data["summary"],
                         metadata={
                             "class_name": class_name,
-                            "inherits_from": ",".join(parents),
                             "methods": ",".join(class_methods),
                             "summary_level": "class"
                         }
