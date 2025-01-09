@@ -183,94 +183,60 @@ class ForwardsFeatureAgent(Chain):
             total += len(snippet)
         return "\n".join(out)
 
-    def _build_adjacency_map(self, docs: List[Document]) -> dict:
+    def _build_symbol_adjacency(self, docs: List[Document]) -> dict:
         """
-        Constructs relationships between code elements, now including class-method relationships.
+        Build adjacency based on 'calls' or references gleaned from structural usage.
+        If docA calls docB, or docA references docB, lower their distance.
+        We'll store adjacency[i][j] = rel_type
         """
         adjacency = {i: {} for i in range(len(docs))}
-        
-        # Build method and class name to index lookups
-        method_to_idx = {}
-        class_to_idx = {}
+
+        # Build a map: method_name -> doc index
+        method_map = {}
         for i, doc in enumerate(docs):
             if doc.metadata.get("summary_level") == "method":
                 method_name = doc.metadata.get("method_name")
                 if method_name:
-                    method_to_idx[method_name] = i
-            elif doc.metadata.get("summary_level") == "class":
-                class_name = doc.metadata.get("class_name")
-                if class_name:
-                    class_to_idx[class_name] = i
-        
-        # Process relationships
+                    method_map[method_name] = i
+
+        # If "calls" is in doc.metadata, we create adjacency
         for i, doc in enumerate(docs):
-            # Connect methods to their containing class
-            if doc.metadata.get("summary_level") == "method":
-                method_name = doc.metadata.get("method_name", "")
-                class_name = method_name.split(".")[0] if "." in method_name else None
-                if class_name and (class_idx := class_to_idx.get(class_name)):
-                    adjacency[i][class_idx] = "belongs_to"
-                    adjacency[class_idx][i] = "contains"
-            
-            # Connect methods that call each other
-            if doc.metadata.get("summary_level") == "method" and (calls := doc.metadata.get("calls")):
-                for called_method in calls.split(","):
-                    if called_method and (called_idx := method_to_idx.get(called_method)):
-                        adjacency[i][called_idx] = "calls"
-                        adjacency[called_idx][i] = "called_by"
-        
+            if doc.metadata.get("summary_level") != "method":
+                continue
+            calls_str = doc.metadata.get("calls", "")
+            if not calls_str:
+                continue
+            calls_list = [x.strip() for x in calls_str.split(",") if x.strip()]
+            for called in calls_list:
+                if called in method_map:
+                    j = method_map[called]
+                    adjacency[i][j] = "calls"
+                    adjacency[j][i] = "called_by"
         return adjacency
 
     def _adjacency_weighted_distance(self, base_dist: np.ndarray, adjacency: dict) -> np.ndarray:
-        """
-        Modified to include class-method relationship weights.
-        """
         dist_mat = base_dist.copy()
-        
         RELATIONSHIP_WEIGHTS = {
-            "belongs_to": 0.4,  # Strong connection - method belongs to class
-            "contains": 0.4,    # Strong connection - class contains method
-            "calls": 0.6,       # Moderate connection - direct method call
-            "called_by": 0.7    # Weaker connection - being called by
+            "calls": 0.6,
+            "called_by": 0.6
         }
-        
         for i in range(len(dist_mat)):
             for j, rel_type in adjacency[i].items():
-                if i != j:
-                    weight = RELATIONSHIP_WEIGHTS[rel_type]
-                    dist_mat[i, j] *= weight
-                    
+                w = RELATIONSHIP_WEIGHTS.get(rel_type, 1.0)
+                dist_mat[i,j] *= w
         return dist_mat
 
     def _initial_clustering(self, docs: List[Document], embeddings: np.ndarray) -> dict:
-        """
-        Performs the initial clustering of documents using a combination of embedding similarities
-        and code relationships. This creates the starting point for subsequent iterative refinement.
-
-        The method:
-        1. Computes cosine similarity between embeddings
-        2. Converts similarities to distances
-        3. Applies adjacency weighting to distances
-        4. Uses hierarchical clustering to create initial groups
-        5. Organizes results into a cluster dictionary
-
-        Args:
-            docs: List of all documents to be clustered
-            embeddings: Matrix of document embeddings
-
-        Returns:
-            dict: Initial clustering results where:
-                - Keys: Cluster identifiers (e.g., "Cluster_0")
-                - Values: Lists of document indices belonging to each cluster
-        """
-        similarity = cosine_similarity(embeddings)
-        distance = 1 - similarity
-        adjacency = self._build_adjacency_map(docs)
-        distance = self._adjacency_weighted_distance(distance, adjacency)
+        # Build adjacency
+        adjacency = self._build_symbol_adjacency(docs)
+        sim = cosine_similarity(embeddings)
+        dist = 1 - sim
+        # Weighted
+        dist = self._adjacency_weighted_distance(dist, adjacency)
 
         n_clusters = min(8, len(docs))
         model = AgglomerativeClustering(n_clusters=n_clusters, metric='precomputed', linkage='complete')
-        labels = model.fit_predict(distance)
+        labels = model.fit_predict(dist)
 
         cluster_dict = {}
         for i, lbl in enumerate(labels):
@@ -448,12 +414,12 @@ class ForwardsFeatureAgent(Chain):
         Returns:
             np.ndarray: Array of cluster labels
         """
-        _, full_embeddings = self._get_docs_and_embeddings()
+        _, full_embeddings, _, _ = self._get_docs_and_embeddings()
         sub_embs = full_embeddings[doc_indices]
         dist = 1 - cosine_similarity(sub_embs)
         model = AgglomerativeClustering(n_clusters=k, metric='precomputed', linkage='complete')
         labels = model.fit_predict(dist)
-        return labels#
+        return labels
 
     def _enforce_min_cluster_size(self, cluster_dict: dict, docs: List[Document]) -> dict:
         """
@@ -478,7 +444,7 @@ class ForwardsFeatureAgent(Chain):
         from copy import deepcopy
         cluster_dict = deepcopy(cluster_dict)
 
-        _, full_embeddings = self._get_docs_and_embeddings()
+        _, full_embeddings, _, _ = self._get_docs_and_embeddings()
 
         def centroid(indices: List[int]) -> np.ndarray:
             embs = full_embeddings[indices]
@@ -551,57 +517,38 @@ class ForwardsFeatureAgent(Chain):
         return final_dict
 
     def _call(self, inputs: dict) -> dict:
-        """
-        Modified to handle class-level and method-level clustering separately before merging.
-        """
         docs, embeddings, class_indices, method_indices = self._get_docs_and_embeddings()
+        if not docs:
+            return {"feature_dict": {}}
 
-        # 1) Initial clustering for both classes and methods
-        class_embeddings = embeddings[class_indices]
-        method_embeddings = embeddings[method_indices]
-        
-        # Cluster classes (with higher min size since there are fewer)
-        class_min_size = max(2, min(self.min_cluster_size - 3, len(class_indices)))
-        temp_min_size = self.min_cluster_size
-        self.min_cluster_size = class_min_size
-        class_clusters = self._initial_clustering([docs[i] for i in class_indices], class_embeddings)
-        
-        # Cluster methods
-        self.min_cluster_size = temp_min_size
-        method_clusters = self._initial_clustering([docs[i] for i in method_indices], method_embeddings)
-        
-        # Convert indices back to global space
-        class_clusters = {k: [class_indices[i] for i in v] for k, v in class_clusters.items()}
-        method_clusters = {k: [method_indices[i] for i in v] for k, v in method_clusters.items()}
-        
-        # Merge clusters
-        cluster_dict = {**class_clusters, **method_clusters}
+        # Single pass for all docs (classes, methods, etc.)
+        init_clusters = self._initial_clustering(docs, embeddings)
 
-        # 2) Iterative merges + splits (now considering both types together)
-        max_iterations = 5
-        for it in range(max_iterations):
-            LOGGER.debug(f"Iteration {it+1}: {len(cluster_dict)} clusters")
-            old_count = len(cluster_dict)
+        # merges, splits
+        cluster_dict = init_clusters
+        max_iter = 3
+        for _ in range(max_iter):
+            print(f"Iteration {_}")
             new_dict = self._single_pass_merge_splits(cluster_dict, docs)
-            new_count = len(new_dict)
-            
-            if new_count == old_count and all(set(new_dict[k]) == set(cluster_dict[k]) for k in new_dict):
-                cluster_dict = new_dict
+            if new_dict == cluster_dict:
                 break
             cluster_dict = new_dict
 
-        # 3) Final naming considering both classes and methods
         final_clusters = self._final_naming(cluster_dict, docs)
 
-        # 4) Build final feature_dict
+        # build final output
         feature_dict = {}
-        for feature_name, dindices in final_clusters.items():
+        for cname, dindices in final_clusters.items():
             items = []
             for idx in dindices:
-                if docs[idx].metadata.get("summary_level") == "class":
-                    items.append(docs[idx].metadata.get("class_name"))
+                doc = docs[idx]
+                lvl = doc.metadata.get("summary_level")
+                if lvl == "method":
+                    items.append(doc.metadata.get("method_name"))
+                elif lvl == "class":
+                    items.append(doc.metadata.get("class_name"))
                 else:
-                    items.append(docs[idx].metadata.get("method_name"))
-            feature_dict[feature_name] = items
+                    items.append(doc.metadata.get("file_path"))
+            feature_dict[cname] = items
 
         return {"feature_dict": feature_dict}

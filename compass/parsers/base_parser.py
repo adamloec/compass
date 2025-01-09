@@ -1,16 +1,21 @@
-# base_parser.py
-
 from tree_sitter import Parser, Language
 
 class BaseParser:
     def __init__(self):
         """
         A base parser that sets up a tree-sitter parser with a chosen language.
-        Child classes must implement _get_language().
+        Child classes must implement _get_language() returning a compiled tree-sitter Language.
         """
         language = Language(self._get_language())
         self.parser = Parser(language)
-        self.class_methods = {}  # New: maps class names to their methods
+
+        # Class -> { method_name -> code }
+        self.class_methods = {}
+        # Map symbol -> set(symbols it references)
+        # e.g. "Player" -> {"Board", "Pieces"}
+        self.symbol_graph = {}
+        # Keep track of all top-level functions: method_name -> code
+        self.global_methods = {}
 
     @classmethod
     def _get_language(cls):
@@ -22,31 +27,38 @@ class BaseParser:
         """
         return self.parser.parse(bytes(code, 'utf8'))
 
-    def extract_methods_and_calls(self, node, code: str):
+    def extract_symbols_and_calls(self, node, code: str):
         """
-        Walk the AST, discover:
-        - function definitions/declarations -> `methods`
-        - function calls -> `calls`
-        - class methods -> stored in `self.class_methods`
-        Child classes can also detect inheritance in `self.inheritance_map`.
+        Instead of just returning methods/calls/class_methods, we fill:
+          - self.class_methods
+          - self.global_methods
+          - self.symbol_graph  (mapping symbol -> references)
         """
-        methods = {}
-        calls = []
-        self.class_methods = {}  # Reset for each new parse
-        self._traverse(node, methods, calls, code)
-        return methods, calls, self.class_methods
+        self.class_methods = {}
+        self.global_methods = {}
+        self.symbol_graph = {}
+        self._traverse(node, code)
+        return self.class_methods, self.global_methods, self.symbol_graph
 
-    def _traverse(self, node, methods, calls, code):
-        """
-        Recursively traverse the AST, calling _process_node on each node.
-        """
-        self._process_node(node, methods, calls, code)
+    def _traverse(self, node, code: str):
+        self._process_node(node, code)
         for child in node.children:
-            self._traverse(child, methods, calls, code)
+            self._traverse(child, code)
 
-    def _process_node(self, node, methods, calls, code):
+    def _process_node(self, node, code: str):
         """
-        Must be implemented by child classes to detect function definitions,
-        calls, and optionally inheritance or anything else.
+        Child classes implement detection logic for:
+          - classes
+          - methods
+          - calls
+          - references
         """
         raise NotImplementedError
+
+    def _add_reference(self, from_symbol: str, to_symbol: str):
+        """
+        Utility to record an edge in the symbol graph
+        """
+        if not from_symbol in self.symbol_graph:
+            self.symbol_graph[from_symbol] = set()
+        self.symbol_graph[from_symbol].add(to_symbol)

@@ -28,9 +28,15 @@ from compass.agents.backwards_feature_agent import BackwardsFeatureAgent
 from langchain.chains.sequential import SequentialChain
 
 # Compass
-compass = Compass(dir_path="test_repos/chess")
+compass = Compass(dir_path="test_repos/Checkers")
 
 vector_store = VectorStore.from_compass(compass, persist=True)
 
-# forwards_feature_agent = ForwardsFeatureAgent(vector_store)
+forwards_feature_agent = ForwardsFeatureAgent.as_chain(vector_store)
 
+feature_dict = forwards_feature_agent.invoke({})
+
+for feature_name, feature_dict in feature_dict.items():
+    for feature_type, feature_data in feature_dict.items():
+        print(feature_type)
+        print(feature_data)

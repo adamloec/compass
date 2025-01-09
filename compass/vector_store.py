@@ -1,20 +1,16 @@
-# vector_store.py
-
 import os
-from enum import Enum
 from typing import Optional, List, Union
 import numpy as np
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 
 from .compass import Compass
 
 class VectorStore:
     """
-    VectorStore merges file-level and method-level summaries from Compass,
-    plus newly discovered inheritance info, into documents.
+    VectorStore merges file-level, class-level, and method-level data from Compass
+    into cohesive Documents for final embedding, including usage-based structural info.
     """
 
     def __init__(self, source: Optional[Union[Compass, str]] = None, persist: bool = False):
@@ -28,29 +24,162 @@ class VectorStore:
             else:
                 repo_name = os.path.basename(source).lower()
             self.persist_dir = f"chroma_db/{repo_name}_vdb"
-            
+
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
         self.vector_store = None
         self.retriever = None
+        if isinstance(source, Compass):
+            self.vector_store = self._create_vectorstore()
+            self.retriever = self._create_retriever()
 
-    @property
-    def embedding_matrix(self) -> np.ndarray:
-        collection = self.vector_store._collection
-        result = collection.get(include=['embeddings'])
-        embeddings = result["embeddings"]
-        if not embeddings:
-            raise ValueError("No embeddings found in vector store")
-        matrix = np.array(embeddings)
-        return matrix.reshape(-1, matrix.shape[-1]) if matrix.ndim == 1 else matrix
+    def _create_documents(self) -> List[Document]:
+        if not isinstance(self.source, Compass):
+            return []
+
+        c = self.source
+        all_docs = []
+
+        # 1) File-level docs
+        for fpath, data in c.file_summaries.items():
+            summary = data.get("summary", "")
+            doc = Document(
+                page_content=summary,
+                metadata={
+                    "file_path": fpath,
+                    "summary_level": "file"
+                }
+            )
+            all_docs.append(doc)
+
+        # 2) Class-level docs
+        for cname, cdata in c.class_summaries.items():
+            summary = cdata.get("summary","")
+            doc = Document(
+                page_content=summary,
+                metadata={
+                    "class_name": cname,
+                    "summary_level": "class"
+                }
+            )
+            all_docs.append(doc)
+
+        # 3) Method-level docs
+        for cname, methods_dict in c._class_methods_dict.items():
+            for mname in methods_dict:
+                full_symbol = f"{cname}::{mname}"
+                msum = c.method_summaries.get(full_symbol, {})
+                method_summary = msum.get("summary","")
+                structural_fp = msum.get("structural_fingerprint","")
+                code_text = msum.get("code","")
+
+                merged_text = (
+                    f"[Method Summary]\n{method_summary}\n\n"
+                    f"[Structural Fingerprint]\n{structural_fp}\n\n"
+                    f"[Raw Code]\n{code_text}"
+                )
+                doc = Document(
+                    page_content=merged_text,
+                    metadata={
+                        "method_name": full_symbol,
+                        "summary_level": "method"
+                    }
+                )
+                all_docs.append(doc)
+
+        # 4) Global methods
+        for gm, gcode in c._global_methods_dict.items():
+            msum = c.method_summaries.get(gm, {})
+            method_summary = msum.get("summary","")
+            structural_fp = msum.get("structural_fingerprint","")
+            code_text = msum.get("code","")
+
+            merged_text = (
+                f"[Method Summary]\n{method_summary}\n\n"
+                f"[Structural Fingerprint]\n{structural_fp}\n\n"
+                f"[Raw Code]\n{code_text}"
+            )
+            doc = Document(
+                page_content=merged_text,
+                metadata={
+                    "method_name": gm,
+                    "summary_level": "method"
+                }
+            )
+            all_docs.append(doc)
+
+        return all_docs
+
+    def _create_vectorstore(self) -> Chroma:
+        from langchain_chroma import Chroma
+        if self.persist_dir and os.path.exists(self.persist_dir):
+            vs = Chroma(
+                persist_directory=self.persist_dir,
+                embedding_function=self.embeddings
+            )
+            if len(vs.get()['ids']) > 0:
+                return vs
+
+        docs = self._create_documents()
+        vs = Chroma(
+            persist_directory=self.persist_dir,
+            embedding_function=self.embeddings
+        )
+        vs.add_documents(docs)
+        return vs
+
+    def _create_retriever(self):
+        return self.vector_store.as_retriever(
+            search_type="similarity_score_threshold",
+            search_kwargs={"score_threshold": 0.7}
+        )
 
     @property
     def documents(self) -> List[Document]:
-        collection = self.vector_store._collection
-        result = collection.get(include=['documents'])
-        return [
-            Document(page_content=doc.get("page_content", ""), metadata=doc.get("metadata", {})) 
-            for doc in result["documents"]
-        ]
+        coll = self.vector_store._collection
+        result = coll.get(include=["documents"])
+        docs = []
+        for doc_obj in result["documents"]:
+            if isinstance(doc_obj, dict):
+                page_content = doc_obj.get("page_content","")
+                meta = doc_obj.get("metadata",{})
+            else:
+                page_content = doc_obj
+                meta = {}
+            docs.append(Document(page_content=page_content, metadata=meta))
+        return docs
+
+    @property
+    def embedding_matrix(self) -> np.ndarray:
+        coll = self.vector_store._collection
+        result = coll.get(include=['embeddings'])
+        embs = result["embeddings"]
+        arr = np.array(embs)
+        return arr.reshape(-1, arr.shape[-1]) if arr.ndim == 2 else arr
+
+    def get_documents_with_embeddings(self) -> tuple[List[Document], np.ndarray]:
+        from langchain.schema import Document
+        coll = self.vector_store._collection
+        result = coll.get(include=["documents","embeddings","metadatas"])
+
+        docs = []
+        for d, meta in zip(result["documents"], result["metadatas"]):
+            if isinstance(d, dict):
+                page_content = d.get("page_content","")
+                mm = d.get("metadata", {})
+            else:
+                page_content = d
+                mm = {}
+            if meta: 
+                mm.update(meta)
+            docs.append(Document(page_content=page_content, metadata=mm))
+        embs = np.array(result["embeddings"])
+        if embs.ndim == 1:
+            embs = embs.reshape(1, -1)
+        return docs, embs
+
+    @classmethod
+    def from_compass(cls, compass: Compass, persist: bool = False):
+        return cls(source=compass, persist=persist)
 
     @classmethod
     def from_persist_storage(cls, persist_dir: str):
@@ -59,124 +188,3 @@ class VectorStore:
         instance.vector_store = instance._create_vectorstore()
         instance.retriever = instance._create_retriever()
         return instance
-    
-    @classmethod
-    def from_compass(cls, compass: Compass, persist: bool = False):
-        instance = cls(source=compass, persist=persist)
-        instance.vector_store = instance._create_vectorstore()
-        instance.retriever = instance._create_retriever()
-        return instance
-    
-    def get_documents_with_embeddings(self) -> tuple[List[Document], np.ndarray]:
-        collection = self.vector_store._collection
-        result = collection.get(include=['documents', 'metadatas', 'embeddings'])
-        
-        docs = [
-            Document(page_content=doc, metadata=metadata or {})
-            for doc, metadata in zip(result["documents"], result["metadatas"])
-        ]
-        embeddings = np.array(result["embeddings"])
-        if embeddings.ndim == 1:
-            embeddings = embeddings.reshape(1, -1)
-        return docs, embeddings
-
-    def _create_documents(self) -> List[Document]:
-        """
-        If source is Compass, combine file-level + method-level + inheritance info
-        into Documents. If it's a raw directory, just chunk code files.
-        """
-        if isinstance(self.source, Compass):
-            return self._create_compass_documents()
-        return self._create_directory_documents()
-
-    def _create_compass_documents(self) -> List[Document]:
-        compass_source = self.source
-        all_documents = []
-
-        # 1) File-level
-        for file_name, file_data in compass_source.file_summaries.items():
-            if "summary" in file_data:
-                all_documents.append(
-                    Document(
-                        page_content=file_data["summary"],
-                        metadata={
-                            "file_path": file_name,
-                            "file_code": file_data.get("code", ""),
-                            "summary_level": "file"
-                        }
-                    )
-                )
-
-        # 2) Method-level
-        for method_name, method_data in compass_source.method_summaries.items():
-            if "summary" in method_data:
-                # retrieve calls (set) from compass
-                calls_list = list(compass_source._method_call_dict.get(method_name, []))
-                doc = Document(
-                    page_content=method_data["summary"],
-                    metadata={
-                        "method_name": method_name,
-                        "calls": ",".join(calls_list),  # store as comma-separated string
-                        "code": method_data.get("code", ""),
-                        "summary_level": "method"
-                    }
-                )
-                # Add file_path to method-level documents
-                if "file_path" in method_data:
-                    doc.metadata["file_path"] = method_data["file_path"]
-                all_documents.append(doc)
-
-        # 3) Classes and summaries
-        for class_name, class_data in compass_source.class_summaries.items():
-            if "summary" in class_data:
-                class_methods = list(class_data.get("methods", {}).keys())
-                
-                all_documents.append(
-                    Document(
-                        page_content=class_data["summary"],
-                        metadata={
-                            "class_name": class_name,
-                            "methods": ",".join(class_methods),
-                            "summary_level": "class"
-                        }
-                    )
-                )
-
-        return all_documents
-    
-    def _create_vectorstore(self) -> Chroma:
-        try:
-            if self.persist_dir and os.path.exists(self.persist_dir):
-                vector_store = Chroma(
-                    persist_directory=self.persist_dir,
-                    embedding_function=self.embeddings
-                )
-                if len(vector_store.get()['ids']) > 0:
-                    return vector_store
-            
-            if self.source is None:
-                raise ValueError(f"No source provided for {self.__class__.__name__}")
-            
-            documents = self._create_documents()
-            for doc in documents:
-                if "calls" in doc.metadata and isinstance(doc.metadata["calls"], str):
-                    pass
-                if "inherits_from" in doc.metadata and not isinstance(doc.metadata["inherits_from"], str):
-                    doc.metadata["inherits_from"] = ",".join(doc.metadata["inherits_from"])
-
-            vector_store = Chroma(
-                persist_directory=self.persist_dir,
-                embedding_function=self.embeddings
-            )
-            vector_store.add_documents(documents)
-            return vector_store
-            
-        except Exception as e:
-            print(f"Failed to create vector store {self.__class__.__name__}: {str(e)}")
-
-    def _create_retriever(self):
-        retriever = self.vector_store.as_retriever(
-            search_type="similarity_score_threshold",
-            search_kwargs={"score_threshold": 0.7}
-        )
-        return retriever

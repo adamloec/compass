@@ -1,156 +1,124 @@
-# cpp_parser.py
-
 import tree_sitter_cpp
 from .base_parser import BaseParser
 
 class CppParser(BaseParser):
+
     @classmethod
     def _get_language(cls):
-        """
-        Return the compiled tree-sitter C++ language object.
-        """
         return tree_sitter_cpp.language()
 
-    def _process_node(self, node, methods, calls, code):
-        """
-        Called during AST traversal. We detect:
-         - function_definition / declaration -> store in `methods`
-         - call_expression -> store in `calls`
-         - class_specifier -> detect class methods
-        """
-        # 3) Class specifiers (process these first to ensure proper context)
-        if node.type == 'class_specifier':
-            class_name = self._handle_class_specifier(node, code)
+    def _process_node(self, node, code: str):
+        node_type = node.type
+
+        # 1) Class declarations
+        if node_type == 'class_specifier':
+            class_name = self._extract_class_name(node, code)
             if class_name:
-                # Initialize empty dict for class methods if not exists
                 if class_name not in self.class_methods:
                     self.class_methods[class_name] = {}
-                
-                # Look for the class body
-                body = node.child_by_field_name('body')
-                if body:
-                    # Process all method declarations and definitions in the class body
-                    for child in body.children:
-                        # Check for both function definitions and declarations
-                        if child.type in {'function_definition', 'declaration', 'field_declaration'}:
-                            method_name = self._extract_function_name(child)
-                            if method_name:
-                                # Get the full method text
-                                method_text = code[child.start_byte:child.end_byte]
-                                self.class_methods[class_name][method_name] = method_text
+                if class_name not in self.symbol_graph:
+                    self.symbol_graph[class_name] = set()
+                # Also parse the class body to find method declarations
+                body_node = node.child_by_field_name('body')
+                if body_node:
+                    for child in body_node.children:
+                        if child.type in {'function_definition','declaration'}:
+                            mname, mcode = self._extract_method(child, code, class_name)
+                            if mname:
+                                self.class_methods[class_name][mname] = mcode
+                                # record that class references this method symbol
+                                full_method_symbol = f"{class_name}::{mname}"
+                                if not class_name in self.symbol_graph:
+                                    self.symbol_graph[class_name] = set()
+                                self.symbol_graph[class_name].add(full_method_symbol)
 
-        # 1) Function definitions (outside of classes or class method implementations)
-        elif node.type == 'function_definition':
-            func_name = self._extract_function_name(node)
-            if func_name:
-                # Check if this is a class method implementation
-                scope = self._get_scope(node)
-                if scope:
-                    class_name = scope
-                    if class_name not in self.class_methods:
-                        self.class_methods[class_name] = {}
-                    self.class_methods[class_name][func_name] = code[node.start_byte:node.end_byte]
-                else:
-                    methods[func_name] = code[node.start_byte:node.end_byte]
+        # 2) Top-level function definitions
+        elif node_type == 'function_definition':
+            mname, mcode = self._extract_method(node, code, None)
+            if mname:
+                self.global_methods[mname] = mcode
+                # record in symbol graph
+                if mname not in self.symbol_graph:
+                    self.symbol_graph[mname] = set()
 
-        # 2) Call expressions
-        elif node.type == 'call_expression':
-            self._handle_call(node, calls)
+        # 3) Call expressions
+        elif node_type == 'call_expression':
+            func_node = node.child_by_field_name('function')
+            if func_node:
+                callee_symbol = self._extract_callee(func_node, code)
+                if callee_symbol:
+                    # We need a "from_symbol" context. For simplicity, assume we're in "global" if no class context is found
+                    from_symbol = self._current_scope_symbol(node)
+                    if not from_symbol:
+                        from_symbol = "Global::(unknown)"  
+                    self._add_reference(from_symbol, callee_symbol)
 
-    def _extract_function_name(self, node):
-        """
-        Return the function name if we detect a function_definition or function_declarator.
-        """
-        if node.type == 'function_definition':
-            declarator = node.child_by_field_name('declarator')
-        elif node.type == 'declaration':
-            declarator = node.child_by_field_name('declarator')
-            if declarator and declarator.type == 'function_declarator':
-                return self._get_name_from_declarator(declarator)
-            return None
-        else:
-            declarator = None
-
-        # Handle function definitions
-        if declarator:
-            # Try to get the name directly from the declarator
-            name = self._get_name_from_declarator(declarator)
-            if name:
-                return name
-
-            # If that fails, try to find the identifier in the children
-            for child in declarator.children:
-                if child.type == 'identifier':
-                    return child.text.decode('utf-8')
-                elif child.type == 'function_declarator':
-                    name = self._get_name_from_declarator(child)
-                    if name:
-                        return name
-
+    def _extract_class_name(self, node, code):
+        name_node = node.child_by_field_name('name')
+        if name_node:
+            return name_node.text.decode('utf-8')
         return None
 
-    def _get_name_from_declarator(self, node):
+    def _extract_method(self, node, code, class_name: str = None):
         """
-        Recursively find the 'identifier' in a function_declarator chain.
+        Returns (method_name, method_code).
+        If class_name is provided, the method belongs to that class.
         """
-        if not node:
-            return None
+        mcode = code[node.start_byte:node.end_byte]
+        # For simplicity, let's say the method_name is any identifier child with type 'function_declarator'
+        # or we can do something more robust.
+        mname = None
+        decl_node = node.child_by_field_name('declarator')
+        if decl_node:
+            # find the identifier
+            mname = self._find_identifier(decl_node)
+        if not mname:
+            return None, None
+        return (mname, mcode)
 
-        # Direct identifier check
+    def _find_identifier(self, node):
+        """Recursively look for an 'identifier' node."""
         if node.type == 'identifier':
             return node.text.decode('utf-8')
-
-        # Handle function declarators
-        if node.type == 'function_declarator':
-            declarator = node.child_by_field_name('declarator')
-            if declarator:
-                return self._get_name_from_declarator(declarator)
-
-        # Check all children for identifiers
         for child in node.children:
-            if child.type == 'identifier':
-                return child.text.decode('utf-8')
-            elif child.type in {'function_declarator', 'pointer_declarator', 'qualified_identifier'}:
-                name = self._get_name_from_declarator(child)
-                if name:
-                    return name
-
+            res = self._find_identifier(child)
+            if res:
+                return res
         return None
 
-    def _handle_call(self, node, calls):
+    def _extract_callee(self, node, code):
         """
-        If we see something like foo(), store 'foo' in calls.
-        If it's something like obj.foo(), store 'foo' as well.
+        For a call_expression -> (function) child, if it's an identifier, we treat that as e.g. "myFunction".
+        If it's something like 'object.method', we might parse it as "ClassName::method" if we can guess the class name.
+        For now, just return the text.
         """
-        func_node = node.child_by_field_name('function')
-        if func_node:
-            if func_node.type == 'identifier':
-                calls.append(func_node.text.decode('utf-8'))
-            elif func_node.type == 'field_expression':
-                field = func_node.child_by_field_name('field')
-                if field:
-                    calls.append(field.text.decode('utf-8'))
+        if node.type == 'identifier':
+            return node.text.decode('utf-8')
+        elif node.type == 'field_expression':
+            # e.g. object.method()
+            field_child = node.child_by_field_name('field')
+            if field_child and field_child.type == 'identifier':
+                return field_child.text.decode('utf-8')
+        return None
 
-    def _handle_class_specifier(self, node, code):
+    def _current_scope_symbol(self, node):
         """
-        Extract the class name from a class specifier node
+        Attempt to find the method or class scope in which this node lives.
+        For brevity, we won't do a full AST walk upward. 
+        A robust approach might climb up the tree to find an enclosing function_definition or class_specifier.
         """
-        class_name_node = node.child_by_field_name('name')
-        if not class_name_node:
-            return None
-
-        return class_name_node.text.decode('utf-8')
-
-    def _get_scope(self, node):
-        """
-        Check if a function definition has a class scope (e.g., ClassName::method)
-        """
-        declarator = node.child_by_field_name('declarator')
-        if declarator:
-            for child in declarator.children:
-                if child.type == 'qualified_identifier':
-                    # Look for the class name in the qualified identifier
-                    for scope_child in child.children:
-                        if scope_child.type == 'namespace_identifier':
-                            return scope_child.text.decode('utf-8')
+        # This is quite naive:
+        parent = node.parent
+        while parent:
+            if parent.type == 'function_definition':
+                # get function name
+                decl_node = parent.child_by_field_name('declarator')
+                if decl_node:
+                    fn = self._find_identifier(decl_node)
+                    if fn:
+                        return fn
+            if parent.type == 'class_specifier':
+                cname = self._extract_class_name(parent, "")
+                return cname
+            parent = parent.parent
         return None
